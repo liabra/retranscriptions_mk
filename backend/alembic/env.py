@@ -37,11 +37,12 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    # Construire l'URL directement depuis l'env pour éviter l'interpolation
+    # configparser qui échoue avec les clés en majuscules (%(DATABASE_URL)s)
+    db_url = os.environ.get("DATABASE_URL", "")
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+    from sqlalchemy import create_engine
+    connectable = create_engine(db_url, poolclass=pool.NullPool)
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
