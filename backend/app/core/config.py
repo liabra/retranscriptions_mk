@@ -9,8 +9,12 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
 
-    # Database
+    # Database — Railway injecte "postgres://", SQLAlchemy exige "postgresql://"
     DATABASE_URL: str
+
+    @property
+    def database_url(self) -> str:
+        return self.DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
     # JWT
     SECRET_KEY: str
