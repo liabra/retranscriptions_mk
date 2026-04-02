@@ -24,47 +24,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def _table_exists(table_name: str) -> bool:
     from sqlalchemy import inspect
-    bind = op.get_bind()
-    return inspect(bind).has_table(table_name)
-
-
-def _create_enum(name: str, values: str) -> None:
-    """Crée un type ENUM PostgreSQL de manière idempotente.
-
-    `CREATE TYPE IF NOT EXISTS` n'existe pas en PostgreSQL.
-    Le seul pattern valide est EXCEPTION WHEN duplicate_object THEN NULL.
-    """
-    op.execute(f"""
-        DO $$ BEGIN
-            CREATE TYPE {name} AS ENUM ({values});
-        EXCEPTION WHEN duplicate_object THEN NULL;
-        END $$;
-    """)
+    return inspect(op.get_bind()).has_table(table_name)
 
 
 def upgrade() -> None:
-    # ── ENUMS ──────────────────────────────────────────────────────────────
-    _create_enum("roleenum", "'administratrice','coordinatrice','retranscripteur','correcteur','comptabilite','lecture_seule'")
-    _create_enum("typeclientenum", "'CE','CMAS','CSSCT','Syndicat','Autre'")
-    _create_enum("roleprestaenum", "'retranscripteur','correcteur','les_deux'")
-    _create_enum("statutdossierenum", "'recu','en_qualification','estime','a_attribuer','en_retranscription','a_corriger','en_correction','en_mise_en_forme','calcul_en_cours','a_valider','envoye','facture','paye_entrant','prestataires_payes','archive','bloque','incomplet'")
-    _create_enum("typeinstanceenum", "'CE','CMAS','CSSCT','Autre'")
-    _create_enum("niveauconfidentialiteenum", "'standard','renforce','absolu'")
-    _create_enum("statutaffectationenum", "'en_attente','en_cours','livre','valide','rejete'")
-    _create_enum("roleaffectationenum", "'retranscripteur','correcteur'")
-    _create_enum("typeactionenum", "'creation','statut','affectation','envoi','paiement','ajustement_tarifaire','note','config_grille','calcul_tarifaire','incident','archivage','auth','acces_document'")
-    _create_enum("graviteenum", "'mineur','majeur','bloquant'")
-    _create_enum("statutincidentenum", "'ouvert','en_cours','resolu'")
-    _create_enum("statutpaiementenum", "'non_payee','partiellement','soldee'")
-    _create_enum("statutpaiementprestaenum", "'a_payer','valide','paye'")
-    _create_enum("rolepayeenum", "'retranscripteur','correcteur'")
-    _create_enum("typegrilleenum", "'client','retranscripteur','correcteur','urgence','snp','special','prise_de_note'")
-    _create_enum("ciblegrilleenum", "'global','client_specifique','prestataire_specifique'")
-    _create_enum("typerègleenum", "'base','majoration','remise','forfait','plancher','plafond'")
-    _create_enum("conditiontypeenum", "'toujours','si_type_instance','si_urgence','si_snp','si_special','si_duree','si_volume','si_client','combinee'")
-    _create_enum("modecalculenum", "'par_page','forfait_fixe','pourcentage_base','pourcentage_total','multiplicateur'")
-    _create_enum("statutcalculenum", "'estimatif','definitif','ajuste'")
-
     # ── USERS ──────────────────────────────────────────────────────────────
     if not _table_exists("users"):
         op.create_table(
@@ -73,7 +36,7 @@ def upgrade() -> None:
             sa.Column("email", sa.String(255), nullable=False, unique=True),
             sa.Column("nom", sa.String(255), nullable=False),
             sa.Column("hashed_password", sa.String(255), nullable=False),
-            sa.Column("role", sa.Enum("administratrice","coordinatrice","retranscripteur","correcteur","comptabilite","lecture_seule", name="roleenum", create_type=False), nullable=False),
+            sa.Column("role", sa.Text, nullable=False),
             sa.Column("actif", sa.Boolean, nullable=False, server_default="true"),
             sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
             sa.Column("last_login", sa.DateTime(timezone=True), nullable=True),
@@ -211,7 +174,7 @@ def upgrade() -> None:
     op.execute("CREATE INDEX IF NOT EXISTS ix_dossiers_statut ON dossiers (statut)")
     op.execute("CREATE INDEX IF NOT EXISTS ix_dossiers_client_id ON dossiers (client_id)")
 
-    # FK de calculs_tarifaires vers dossiers (ajout post-création, ignorée si déjà présente)
+    # FK de calculs_tarifaires → dossiers (circulaire, ajoutée post-création)
     op.execute("""
         DO $$ BEGIN
             IF NOT EXISTS (
@@ -321,7 +284,13 @@ def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS ix_journal_detail_gin")
     op.drop_table("journal_activites")
     op.drop_table("affectations")
-    op.drop_constraint("fk_calculs_dossier_id", "calculs_tarifaires", type_="foreignkey")
+    op.execute("""
+        DO $$ BEGIN
+            IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_calculs_dossier_id') THEN
+                ALTER TABLE calculs_tarifaires DROP CONSTRAINT fk_calculs_dossier_id;
+            END IF;
+        END $$;
+    """)
     op.drop_table("dossiers")
     op.drop_table("calculs_tarifaires")
     op.drop_table("prestataires")
@@ -329,11 +298,3 @@ def downgrade() -> None:
     op.drop_table("regles_tarifaires")
     op.drop_table("grilles_tarifaires")
     op.drop_table("users")
-
-    for enum_name in ["roleenum","typeclientenum","roleprestaenum","statutdossierenum",
-                      "typeinstanceenum","niveauconfidentialiteenum","statutaffectationenum",
-                      "roleaffectationenum","typeactionenum","graviteenum","statutincidentenum",
-                      "statutpaiementenum","statutpaiementprestaenum","rolepayeenum",
-                      "typegrilleenum","ciblegrilleenum","typeregleenum","conditiontypeenum",
-                      "modecalculenum","statutcalculenum"]:
-        op.execute(f"DROP TYPE IF EXISTS {enum_name}")
