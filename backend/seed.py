@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import app.db.base  # noqa — charge tous les modèles avant configure_mappers()
 from app.db.session import SessionLocal
 from app.models.user import User, RoleEnum
 from app.core.security import hash_password
