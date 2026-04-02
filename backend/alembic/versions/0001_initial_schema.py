@@ -28,29 +28,42 @@ def _table_exists(table_name: str) -> bool:
     return inspect(bind).has_table(table_name)
 
 
+def _create_enum(name: str, values: str) -> None:
+    """Crée un type ENUM PostgreSQL de manière idempotente.
+
+    `CREATE TYPE IF NOT EXISTS` n'existe pas en PostgreSQL.
+    Le seul pattern valide est EXCEPTION WHEN duplicate_object THEN NULL.
+    """
+    op.execute(f"""
+        DO $$ BEGIN
+            CREATE TYPE {name} AS ENUM ({values});
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$;
+    """)
+
+
 def upgrade() -> None:
     # ── ENUMS ──────────────────────────────────────────────────────────────
-    # IF NOT EXISTS : idempotent si la migration est rejouée après un crash partiel
-    op.execute("CREATE TYPE IF NOT EXISTS roleenum AS ENUM ('administratrice','coordinatrice','retranscripteur','correcteur','comptabilite','lecture_seule')")
-    op.execute("CREATE TYPE IF NOT EXISTS typeclientenum AS ENUM ('CE','CMAS','CSSCT','Syndicat','Autre')")
-    op.execute("CREATE TYPE IF NOT EXISTS roleprestaenum AS ENUM ('retranscripteur','correcteur','les_deux')")
-    op.execute("CREATE TYPE IF NOT EXISTS statutdossierenum AS ENUM ('recu','en_qualification','estime','a_attribuer','en_retranscription','a_corriger','en_correction','en_mise_en_forme','calcul_en_cours','a_valider','envoye','facture','paye_entrant','prestataires_payes','archive','bloque','incomplet')")
-    op.execute("CREATE TYPE IF NOT EXISTS typeinstanceenum AS ENUM ('CE','CMAS','CSSCT','Autre')")
-    op.execute("CREATE TYPE IF NOT EXISTS niveauconfidentialiteenum AS ENUM ('standard','renforce','absolu')")
-    op.execute("CREATE TYPE IF NOT EXISTS statutaffectationenum AS ENUM ('en_attente','en_cours','livre','valide','rejete')")
-    op.execute("CREATE TYPE IF NOT EXISTS roleaffectationenum AS ENUM ('retranscripteur','correcteur')")
-    op.execute("CREATE TYPE IF NOT EXISTS typeactionenum AS ENUM ('creation','statut','affectation','envoi','paiement','ajustement_tarifaire','note','config_grille','calcul_tarifaire','incident','archivage','auth','acces_document')")
-    op.execute("CREATE TYPE IF NOT EXISTS graviteenum AS ENUM ('mineur','majeur','bloquant')")
-    op.execute("CREATE TYPE IF NOT EXISTS statutincidentenum AS ENUM ('ouvert','en_cours','resolu')")
-    op.execute("CREATE TYPE IF NOT EXISTS statutpaiementenum AS ENUM ('non_payee','partiellement','soldee')")
-    op.execute("CREATE TYPE IF NOT EXISTS statutpaiementprestaenum AS ENUM ('a_payer','valide','paye')")
-    op.execute("CREATE TYPE IF NOT EXISTS rolepayeenum AS ENUM ('retranscripteur','correcteur')")
-    op.execute("CREATE TYPE IF NOT EXISTS typegrilleenum AS ENUM ('client','retranscripteur','correcteur','urgence','snp','special','prise_de_note')")
-    op.execute("CREATE TYPE IF NOT EXISTS ciblegrilleenum AS ENUM ('global','client_specifique','prestataire_specifique')")
-    op.execute("CREATE TYPE IF NOT EXISTS typerègleenum AS ENUM ('base','majoration','remise','forfait','plancher','plafond')")
-    op.execute("CREATE TYPE IF NOT EXISTS conditiontypeenum AS ENUM ('toujours','si_type_instance','si_urgence','si_snp','si_special','si_duree','si_volume','si_client','combinee')")
-    op.execute("CREATE TYPE IF NOT EXISTS modecalculenum AS ENUM ('par_page','forfait_fixe','pourcentage_base','pourcentage_total','multiplicateur')")
-    op.execute("CREATE TYPE IF NOT EXISTS statutcalculenum AS ENUM ('estimatif','definitif','ajuste')")
+    _create_enum("roleenum", "'administratrice','coordinatrice','retranscripteur','correcteur','comptabilite','lecture_seule'")
+    _create_enum("typeclientenum", "'CE','CMAS','CSSCT','Syndicat','Autre'")
+    _create_enum("roleprestaenum", "'retranscripteur','correcteur','les_deux'")
+    _create_enum("statutdossierenum", "'recu','en_qualification','estime','a_attribuer','en_retranscription','a_corriger','en_correction','en_mise_en_forme','calcul_en_cours','a_valider','envoye','facture','paye_entrant','prestataires_payes','archive','bloque','incomplet'")
+    _create_enum("typeinstanceenum", "'CE','CMAS','CSSCT','Autre'")
+    _create_enum("niveauconfidentialiteenum", "'standard','renforce','absolu'")
+    _create_enum("statutaffectationenum", "'en_attente','en_cours','livre','valide','rejete'")
+    _create_enum("roleaffectationenum", "'retranscripteur','correcteur'")
+    _create_enum("typeactionenum", "'creation','statut','affectation','envoi','paiement','ajustement_tarifaire','note','config_grille','calcul_tarifaire','incident','archivage','auth','acces_document'")
+    _create_enum("graviteenum", "'mineur','majeur','bloquant'")
+    _create_enum("statutincidentenum", "'ouvert','en_cours','resolu'")
+    _create_enum("statutpaiementenum", "'non_payee','partiellement','soldee'")
+    _create_enum("statutpaiementprestaenum", "'a_payer','valide','paye'")
+    _create_enum("rolepayeenum", "'retranscripteur','correcteur'")
+    _create_enum("typegrilleenum", "'client','retranscripteur','correcteur','urgence','snp','special','prise_de_note'")
+    _create_enum("ciblegrilleenum", "'global','client_specifique','prestataire_specifique'")
+    _create_enum("typerègleenum", "'base','majoration','remise','forfait','plancher','plafond'")
+    _create_enum("conditiontypeenum", "'toujours','si_type_instance','si_urgence','si_snp','si_special','si_duree','si_volume','si_client','combinee'")
+    _create_enum("modecalculenum", "'par_page','forfait_fixe','pourcentage_base','pourcentage_total','multiplicateur'")
+    _create_enum("statutcalculenum", "'estimatif','definitif','ajuste'")
 
     # ── USERS ──────────────────────────────────────────────────────────────
     if not _table_exists("users"):
