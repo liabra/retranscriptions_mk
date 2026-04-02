@@ -14,7 +14,7 @@ router = APIRouter()
 
 @router.get("/", response_model=List[PrestaOut])
 def list_prestataires(
-    db: DbDep = Depends(),
+    db: DbDep,
     _user: User = Depends(require_admin_or_coordinator),
     actif_only: bool = True,
     disponible_only: bool = False,
@@ -30,7 +30,7 @@ def list_prestataires(
 @router.post("/", response_model=PrestaOut, status_code=201)
 def create_prestataire(
     payload: PrestaCreate,
-    db: DbDep = Depends(),
+    db: DbDep,
     _user: User = Depends(require_admin_or_coordinator),
 ):
     data = payload.model_dump(exclude={"iban"})
@@ -47,7 +47,7 @@ def create_prestataire(
 @router.get("/{presta_id}", response_model=PrestaOut)
 def get_prestataire(
     presta_id: uuid.UUID,
-    db: DbDep = Depends(),
+    db: DbDep,
     _user: User = Depends(require_admin_or_coordinator),
 ):
     presta = db.query(Prestataire).filter(Prestataire.id == presta_id).first()
@@ -60,7 +60,7 @@ def get_prestataire(
 def update_prestataire(
     presta_id: uuid.UUID,
     payload: PrestaUpdate,
-    db: DbDep = Depends(),
+    db: DbDep,
     _user: User = Depends(require_admin_or_coordinator),
 ):
     presta = db.query(Prestataire).filter(Prestataire.id == presta_id).first()
@@ -82,7 +82,7 @@ def update_prestataire(
 @router.get("/{presta_id}/iban")
 def get_iban(
     presta_id: uuid.UUID,
-    db: DbDep = Depends(),
+    db: DbDep,
     _admin: User = Depends(require_admin),
 ):
     """IBAN déchiffré — réservé administratrice uniquement."""

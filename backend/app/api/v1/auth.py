@@ -14,7 +14,7 @@ router = APIRouter()
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: DbDep = Depends()):
+def login(db: DbDep, form_data: OAuth2PasswordRequestForm = Depends()):
     user = db.query(User).filter(
         User.email == form_data.username,
         User.actif == True
@@ -40,7 +40,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: DbDep = Depends(
 @router.post("/register", response_model=UserOut)
 def register(
     payload: UserCreate,
-    db: DbDep = Depends(),
+    db: DbDep,
     _admin: User = Depends(require_admin),
 ):
     """Création d'utilisateur réservée à l'administratrice."""

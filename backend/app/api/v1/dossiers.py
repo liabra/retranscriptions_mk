@@ -26,8 +26,8 @@ def _check_access(user: User, dossier: Dossier) -> None:
 
 @router.get("/", response_model=List[DossierListItem])
 def list_dossiers(
-    db: DbDep = Depends(),
-    current_user: CurrentUser = Depends(),
+    db: DbDep,
+    current_user: CurrentUser,
     statut: Optional[StatutDossierEnum] = None,
     urgent_only: bool = False,
     client_id: Optional[uuid.UUID] = None,
@@ -60,7 +60,7 @@ def list_dossiers(
 def create_dossier(
     payload: DossierCreate,
     request: Request,
-    db: DbDep = Depends(),
+    db: DbDep,
     current_user: User = Depends(require_admin_or_coordinator),
 ):
     reference = generate_reference(db, payload.type_instance)
@@ -100,8 +100,8 @@ def create_dossier(
 @router.get("/{dossier_id}", response_model=DossierOut)
 def get_dossier(
     dossier_id: uuid.UUID,
-    db: DbDep = Depends(),
-    current_user: CurrentUser = Depends(),
+    db: DbDep,
+    current_user: CurrentUser,
 ):
     dossier = db.query(Dossier).filter(Dossier.id == dossier_id).first()
     if not dossier:
@@ -114,7 +114,7 @@ def get_dossier(
 def update_dossier(
     dossier_id: uuid.UUID,
     payload: DossierUpdate,
-    db: DbDep = Depends(),
+    db: DbDep,
     current_user: User = Depends(require_admin_or_coordinator),
 ):
     dossier = db.query(Dossier).filter(Dossier.id == dossier_id).first()
@@ -133,7 +133,7 @@ def update_dossier(
 def qualify_dossier(
     dossier_id: uuid.UUID,
     payload: DossierQualify,
-    db: DbDep = Depends(),
+    db: DbDep,
     current_user: User = Depends(require_admin_or_coordinator),
 ):
     """Étape 2 du workflow — saisie des critères de tarification."""
@@ -168,7 +168,7 @@ def qualify_dossier(
 @router.post("/{dossier_id}/force-urgent", response_model=DossierOut)
 def force_urgent(
     dossier_id: uuid.UUID,
-    db: DbDep = Depends(),
+    db: DbDep,
     current_user: User = Depends(require_admin_or_coordinator),
 ):
     """Force manuellement le statut URGENT (avec journalisation)."""

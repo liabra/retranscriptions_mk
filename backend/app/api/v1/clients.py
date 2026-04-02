@@ -13,7 +13,7 @@ router = APIRouter()
 
 @router.get("/", response_model=List[ClientOut])
 def list_clients(
-    db: DbDep = Depends(),
+    db: DbDep,
     _user: User = Depends(require_admin_or_coordinator),
     actif_only: bool = True,
 ):
@@ -26,7 +26,7 @@ def list_clients(
 @router.post("/", response_model=ClientOut, status_code=201)
 def create_client(
     payload: ClientCreate,
-    db: DbDep = Depends(),
+    db: DbDep,
     _user: User = Depends(require_admin_or_coordinator),
 ):
     client = Client(**payload.model_dump())
@@ -39,7 +39,7 @@ def create_client(
 @router.get("/{client_id}", response_model=ClientOut)
 def get_client(
     client_id: uuid.UUID,
-    db: DbDep = Depends(),
+    db: DbDep,
     _user: User = Depends(require_admin_or_coordinator),
 ):
     client = db.query(Client).filter(Client.id == client_id).first()
@@ -52,7 +52,7 @@ def get_client(
 def update_client(
     client_id: uuid.UUID,
     payload: ClientUpdate,
-    db: DbDep = Depends(),
+    db: DbDep,
     _user: User = Depends(require_admin_or_coordinator),
 ):
     client = db.query(Client).filter(Client.id == client_id).first()
