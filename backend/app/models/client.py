@@ -37,7 +37,7 @@ class Client(Base):
     )
 
     # Relations
-    dossiers = relationship("Dossier", back_populates="client", lazy="dynamic")
+    dossiers = relationship("Dossier", foreign_keys="Dossier.client_id", back_populates="client", lazy="dynamic")
     grille_tarifaire = relationship("GrilleTarifaire", foreign_keys=[grille_tarifaire_id])
 
     def __repr__(self) -> str:
