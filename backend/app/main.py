@@ -2,6 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
+# Import all models upfront so SQLAlchemy mapper relationships resolve correctly
+# regardless of which endpoint is hit first
+import app.db.base  # noqa
 from app.api.v1 import router as api_v1_router
 
 app = FastAPI(
