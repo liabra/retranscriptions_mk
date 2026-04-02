@@ -32,6 +32,10 @@ class DossierQualify(BaseModel):
     # volume_estime_pages: float | null
 
 
+class DossierTransition(BaseModel):
+    statut: StatutDossierEnum
+
+
 class DossierUpdate(BaseModel):
     titre: Optional[str] = None
     notes_internes: Optional[str] = None
@@ -57,6 +61,7 @@ class DossierOut(BaseModel):
     criteres_tarif: Optional[Dict[str, Any]]
     calcul_tarifaire_id: Optional[uuid.UUID]
     niveau_confidentialite: NiveauConfidentialiteEnum
+    notes_internes: Optional[str]
     created_at: datetime
     updated_at: datetime
 

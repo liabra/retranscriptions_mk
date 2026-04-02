@@ -17,3 +17,4 @@ from app.models.journal import JournalActivite  # noqa — references Dossier, U
 from app.models.incident import IncidentQualite  # noqa — references Dossier, User, Prestataire
 from app.models.facture import FactureClient  # noqa — references Dossier, Client, CalculTarifaire
 from app.models.paiement import PaiementPrestataire  # noqa — references Affectation, Dossier, Prestataire
+from app.models.fichier import FichierDossier  # noqa — references Dossier, User

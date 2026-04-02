@@ -120,6 +120,7 @@ class Dossier(Base):
         lazy="dynamic",
         overlaps="calcul_tarifaire",
     )
+    fichiers = relationship("FichierDossier", back_populates="dossier", lazy="dynamic")
 
     def __repr__(self) -> str:
         return f"<Dossier {self.reference} [{self.statut.value}]>"

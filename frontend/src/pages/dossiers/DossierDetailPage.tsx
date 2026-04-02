@@ -2,11 +2,57 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { dossiersService } from '@/services/dossiers.service'
 import { clientsService } from '@/services/clients.service'
-import type { Dossier, Client } from '@/types'
+import { affectationsService } from '@/services/affectations.service'
+import { fichiersService } from '@/services/fichiers.service'
+import { prestatairesService } from '@/services/prestataires.service'
+import type {
+  Dossier, Client, Affectation, AffectationCreate,
+  FichierDossier, FichierCreate, Prestataire, StatutDossier,
+  RoleAffectation, TypeDocument,
+} from '@/types'
 import { StatusBadge, UrgentBadge } from '@/components/ui/StatusBadge'
 import { PageLoader } from '@/components/ui/Spinner'
 import { formatDate, formatDateTime, isRetard, STATUT_LABELS } from '@/utils/statuts'
 import { useAuth } from '@/features/auth/AuthContext'
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const TRANSITIONS: Partial<Record<StatutDossier, StatutDossier[]>> = {
+  recu: ['en_qualification', 'bloque', 'incomplet'],
+  en_qualification: ['estime', 'bloque', 'incomplet'],
+  estime: ['a_attribuer', 'bloque', 'incomplet'],
+  a_attribuer: ['en_retranscription', 'bloque'],
+  en_retranscription: ['a_corriger', 'bloque'],
+  a_corriger: ['en_correction', 'en_retranscription', 'bloque'],
+  en_correction: ['en_mise_en_forme', 'a_corriger', 'bloque'],
+  en_mise_en_forme: ['calcul_en_cours', 'bloque'],
+  calcul_en_cours: ['a_valider', 'bloque'],
+  a_valider: ['envoye', 'en_mise_en_forme', 'bloque'],
+  envoye: ['facture', 'bloque'],
+  facture: ['paye_entrant', 'bloque'],
+  paye_entrant: ['prestataires_payes', 'bloque'],
+  prestataires_payes: ['archive'],
+  archive: [],
+  bloque: ['recu', 'en_qualification', 'estime', 'a_attribuer', 'en_retranscription', 'a_corriger', 'en_correction'],
+  incomplet: ['en_qualification'],
+}
+
+const TYPE_DOCUMENT_LABELS: Record<TypeDocument, string> = {
+  audio_brut: 'Audio brut',
+  retranscription_v1: 'Retranscription v1',
+  retranscription_corrigee: 'Retranscription corrigée',
+  document_paiement: 'Document de paiement',
+  document_client: 'Document client',
+  facture: 'Facture',
+  autre: 'Autre',
+}
+
+const ROLE_AFFECTATION_LABELS: Record<RoleAffectation, string> = {
+  retranscripteur: 'Retranscripteur',
+  correcteur: 'Correcteur',
+}
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
 
 interface InfoRowProps { label: string; value: React.ReactNode }
 function InfoRow({ label, value }: InfoRowProps) {
@@ -18,22 +64,51 @@ function InfoRow({ label, value }: InfoRowProps) {
   )
 }
 
+// ─── Main component ───────────────────────────────────────────────────────────
+
 export function DossierDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { user } = useAuth()
+
   const [dossier, setDossier] = useState<Dossier | null>(null)
   const [client, setClient] = useState<Client | null>(null)
+  const [affectations, setAffectations] = useState<Affectation[]>([])
+  const [fichiers, setFichiers] = useState<FichierDossier[]>([])
+  const [prestataires, setPrestataires] = useState<Prestataire[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
 
-  const canForceUrgent = user?.role === 'administratrice' || user?.role === 'coordinatrice'
+  // Affectation form state
+  const [showAffectForm, setShowAffectForm] = useState(false)
+  const [affectForm, setAffectForm] = useState<AffectationCreate>({ prestataire_id: '', type_role: 'retranscripteur' })
+  const [affectError, setAffectError] = useState('')
+  const [affectLoading, setAffectLoading] = useState(false)
+
+  // Fichier form state
+  const [showFichierForm, setShowFichierForm] = useState(false)
+  const [fichierForm, setFichierForm] = useState<FichierCreate>({ type_document: 'autre', nom_fichier: '', url_onedrive: '' })
+  const [fichierError, setFichierError] = useState('')
+  const [fichierLoading, setFichierLoading] = useState(false)
+
+  // Transition state
+  const [transitionLoading, setTransitionLoading] = useState<StatutDossier | null>(null)
+
+  const isAdminOrCoord = user?.role === 'administratrice' || user?.role === 'coordinatrice'
 
   useEffect(() => {
     if (!id) return
-    dossiersService.get(id)
-      .then(async (d) => {
+    Promise.all([
+      dossiersService.get(id),
+      affectationsService.list(id),
+      fichiersService.list(id),
+      prestatairesService.list({ actif_only: true }),
+    ])
+      .then(async ([d, aff, fich, presta]) => {
         setDossier(d)
+        setAffectations(aff)
+        setFichiers(fich)
+        setPrestataires(presta)
         const c = await clientsService.get(d.client_id)
         setClient(c)
       })
@@ -47,14 +122,72 @@ export function DossierDetailPage() {
     setDossier(updated)
   }
 
+  async function handleTransition(statut: StatutDossier) {
+    if (!id) return
+    setTransitionLoading(statut)
+    try {
+      const updated = await dossiersService.transition(id, statut)
+      setDossier(updated)
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      alert(msg ?? 'Erreur lors de la transition')
+    } finally {
+      setTransitionLoading(null)
+    }
+  }
+
+  async function handleAffectSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!id) return
+    setAffectError('')
+    setAffectLoading(true)
+    try {
+      const created = await affectationsService.create(id, affectForm)
+      setAffectations((prev) => [...prev, created])
+      setShowAffectForm(false)
+      setAffectForm({ prestataire_id: '', type_role: 'retranscripteur' })
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setAffectError(detail ?? 'Erreur lors de l\'affectation')
+    } finally {
+      setAffectLoading(false)
+    }
+  }
+
+  async function handleFichierSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!id) return
+    setFichierError('')
+    setFichierLoading(true)
+    try {
+      const created = await fichiersService.create(id, fichierForm)
+      setFichiers((prev) => [...prev, created])
+      setShowFichierForm(false)
+      setFichierForm({ type_document: 'autre', nom_fichier: '', url_onedrive: '' })
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setFichierError(detail ?? 'Erreur lors de l\'ajout du fichier')
+    } finally {
+      setFichierLoading(false)
+    }
+  }
+
+  function prestaName(prestaId: string) {
+    return prestataires.find((p) => p.id === prestaId)?.nom ?? prestaId
+  }
+
   if (isLoading) return <PageLoader />
   if (error) return <div className="page"><div className="alert alert-error">{error}</div></div>
   if (!dossier) return null
 
   const retard = isRetard(dossier.date_limite) && !['archive', 'envoye', 'facture', 'paye_entrant', 'prestataires_payes'].includes(dossier.statut)
+  const disponibleTransitions = TRANSITIONS[dossier.statut] ?? []
+  const retranscripteurAffecte = affectations.find((a) => a.type_role === 'retranscripteur' && a.statut !== 'rejete')
+  const correcteurAffecte = affectations.find((a) => a.type_role === 'correcteur' && a.statut !== 'rejete')
 
   return (
     <div className="page">
+      {/* Header */}
       <div className="header-row">
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
@@ -71,14 +204,15 @@ export function DossierDetailPage() {
         </div>
 
         <div style={{ display: 'flex', gap: 8 }}>
-          {canForceUrgent && !dossier.est_urgent && (
+          {isAdminOrCoord && !dossier.est_urgent && (
             <button className="btn btn-secondary btn-sm" onClick={handleForceUrgent}>
-              🚨 Forcer urgent
+              Forcer urgent
             </button>
           )}
         </div>
       </div>
 
+      {/* Infos + Workflow */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         {/* Informations principales */}
         <div className="card">
@@ -108,7 +242,7 @@ export function DossierDetailPage() {
           </div>
         </div>
 
-        {/* Workflow */}
+        {/* Workflow — transitions */}
         <div className="card">
           <div className="card-header">
             <h2 className="card-title">Workflow</h2>
@@ -118,35 +252,43 @@ export function DossierDetailPage() {
               Statut actuel : <strong style={{ color: 'var(--color-text)' }}>{STATUT_LABELS[dossier.statut]}</strong>
             </div>
 
-            {/* Critères tarifaires */}
-            {dossier.criteres_tarif && (
-              <div style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', padding: '10px 12px', marginBottom: 12 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)', marginBottom: 6 }}>
-                  Critères tarifaires
+            {isAdminOrCoord && disponibleTransitions.length > 0 && (
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)', marginBottom: 8 }}>
+                  Transitions disponibles
                 </div>
-                {Object.entries(dossier.criteres_tarif).map(([k, v]) => (
-                  <div key={k} style={{ fontSize: 12, display: 'flex', gap: 6 }}>
-                    <span style={{ color: 'var(--color-text-muted)', width: 160 }}>{k}</span>
-                    <span>{String(v)}</span>
-                  </div>
-                ))}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {disponibleTransitions.map((cible) => (
+                    <button
+                      key={cible}
+                      className="btn btn-sm btn-secondary"
+                      style={cible === 'bloque' ? { borderColor: 'var(--color-danger)', color: 'var(--color-danger)' } : {}}
+                      disabled={transitionLoading !== null}
+                      onClick={() => handleTransition(cible)}
+                    >
+                      {transitionLoading === cible ? '...' : `→ ${STATUT_LABELS[cible]}`}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 
-            {/* Calcul tarifaire */}
-            {dossier.calcul_tarifaire_id ? (
-              <div className="badge badge-green" style={{ fontSize: 12 }}>
-                ✓ Calcul tarifaire disponible
-              </div>
-            ) : (
+            {(!isAdminOrCoord || disponibleTransitions.length === 0) && (
               <div className="badge badge-gray" style={{ fontSize: 12 }}>
-                Calcul tarifaire non encore généré
+                {disponibleTransitions.length === 0 ? 'Statut terminal' : 'Transitions réservées aux coordinatrices'}
+              </div>
+            )}
+
+            {dossier.calcul_tarifaire_id && (
+              <div className="badge badge-green" style={{ fontSize: 12, marginTop: 10 }}>
+                ✓ Calcul tarifaire disponible
               </div>
             )}
           </div>
         </div>
       </div>
 
+      {/* Notes internes */}
       {dossier.notes_internes && (
         <div className="card" style={{ marginTop: 16 }}>
           <div className="card-header">
@@ -158,6 +300,219 @@ export function DossierDetailPage() {
           </div>
         </div>
       )}
+
+      {/* Section A : Affectations */}
+      {isAdminOrCoord && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="card-header">
+            <h2 className="card-title">Affectations</h2>
+            <button className="btn btn-sm btn-primary" onClick={() => setShowAffectForm((v) => !v)}>
+              {showAffectForm ? 'Annuler' : '+ Affecter'}
+            </button>
+          </div>
+          <div className="card-body">
+            {/* Summary row */}
+            <div style={{ display: 'flex', gap: 24, marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--color-text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Retranscripteur</div>
+                {retranscripteurAffecte
+                  ? <span style={{ fontSize: 13 }}>{prestaName(retranscripteurAffecte.prestataire_id)} <span className="badge badge-gray">{retranscripteurAffecte.statut}</span></span>
+                  : <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>Non affecté</span>}
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--color-text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Correcteur</div>
+                {correcteurAffecte
+                  ? <span style={{ fontSize: 13 }}>{prestaName(correcteurAffecte.prestataire_id)} <span className="badge badge-gray">{correcteurAffecte.statut}</span></span>
+                  : <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>Non affecté</span>}
+              </div>
+            </div>
+
+            {/* Add form */}
+            {showAffectForm && (
+              <form onSubmit={handleAffectSubmit} style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', padding: 16, marginBottom: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 10, alignItems: 'end' }}>
+                  <div>
+                    <label className="form-label">Prestataire</label>
+                    <select
+                      className="form-input"
+                      value={affectForm.prestataire_id}
+                      onChange={(e) => setAffectForm((f) => ({ ...f, prestataire_id: e.target.value }))}
+                      required
+                    >
+                      <option value="">— Choisir —</option>
+                      {prestataires.map((p) => (
+                        <option key={p.id} value={p.id}>{p.nom} ({p.role}){p.disponible ? '' : ' — indisponible'}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="form-label">Rôle</label>
+                    <select
+                      className="form-input"
+                      value={affectForm.type_role}
+                      onChange={(e) => setAffectForm((f) => ({ ...f, type_role: e.target.value as RoleAffectation }))}
+                    >
+                      <option value="retranscripteur">Retranscripteur</option>
+                      <option value="correcteur">Correcteur</option>
+                    </select>
+                  </div>
+                  <button type="submit" className="btn btn-primary btn-sm" disabled={affectLoading}>
+                    {affectLoading ? '...' : 'Affecter'}
+                  </button>
+                </div>
+                {affectError && <div className="alert alert-error" style={{ marginTop: 8 }}>{affectError}</div>}
+              </form>
+            )}
+
+            {/* Full list */}
+            {affectations.length > 0 ? (
+              <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
+                    <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600, fontSize: 11, color: 'var(--color-text-muted)' }}>Prestataire</th>
+                    <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600, fontSize: 11, color: 'var(--color-text-muted)' }}>Rôle</th>
+                    <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600, fontSize: 11, color: 'var(--color-text-muted)' }}>Statut</th>
+                    <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600, fontSize: 11, color: 'var(--color-text-muted)' }}>Attribué le</th>
+                    <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600, fontSize: 11, color: 'var(--color-text-muted)' }}>Date limite</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {affectations.map((a) => (
+                    <tr key={a.id} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
+                      <td style={{ padding: '6px 8px' }}>{prestaName(a.prestataire_id)}</td>
+                      <td style={{ padding: '6px 8px' }}>{ROLE_AFFECTATION_LABELS[a.type_role]}</td>
+                      <td style={{ padding: '6px 8px' }}><span className="badge badge-gray">{a.statut}</span></td>
+                      <td style={{ padding: '6px 8px' }}>{formatDate(a.date_attribution)}</td>
+                      <td style={{ padding: '6px 8px' }}>{formatDate(a.date_limite_rendu)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-muted)' }}>Aucune affectation</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Section C : Fichiers */}
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-header">
+          <h2 className="card-title">Fichiers</h2>
+          {isAdminOrCoord && (
+            <button className="btn btn-sm btn-primary" onClick={() => setShowFichierForm((v) => !v)}>
+              {showFichierForm ? 'Annuler' : '+ Ajouter un fichier'}
+            </button>
+          )}
+        </div>
+        <div className="card-body">
+          {/* Add form */}
+          {showFichierForm && (
+            <form onSubmit={handleFichierSubmit} style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', padding: 16, marginBottom: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <label className="form-label">Type de document</label>
+                  <select
+                    className="form-input"
+                    value={fichierForm.type_document}
+                    onChange={(e) => setFichierForm((f) => ({ ...f, type_document: e.target.value as TypeDocument }))}
+                  >
+                    {Object.entries(TYPE_DOCUMENT_LABELS).map(([k, v]) => (
+                      <option key={k} value={k}>{v}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="form-label">Nom du fichier</label>
+                  <input
+                    className="form-input"
+                    type="text"
+                    placeholder="ex: CR_CE_2026-04.docx"
+                    value={fichierForm.nom_fichier}
+                    onChange={(e) => setFichierForm((f) => ({ ...f, nom_fichier: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label className="form-label">Lien OneDrive</label>
+                  <input
+                    className="form-input"
+                    type="url"
+                    placeholder="https://..."
+                    value={fichierForm.url_onedrive}
+                    onChange={(e) => setFichierForm((f) => ({ ...f, url_onedrive: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="form-label">Version</label>
+                  <input
+                    className="form-input"
+                    type="text"
+                    placeholder="1.0"
+                    value={fichierForm.version ?? ''}
+                    onChange={(e) => setFichierForm((f) => ({ ...f, version: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="form-label">Commentaire</label>
+                  <input
+                    className="form-input"
+                    type="text"
+                    value={fichierForm.commentaire ?? ''}
+                    onChange={(e) => setFichierForm((f) => ({ ...f, commentaire: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+                <button type="submit" className="btn btn-primary btn-sm" disabled={fichierLoading}>
+                  {fichierLoading ? '...' : 'Ajouter'}
+                </button>
+              </div>
+              {fichierError && <div className="alert alert-error" style={{ marginTop: 8 }}>{fichierError}</div>}
+            </form>
+          )}
+
+          {fichiers.length > 0 ? (
+            <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
+                  <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600, fontSize: 11, color: 'var(--color-text-muted)' }}>Nom</th>
+                  <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600, fontSize: 11, color: 'var(--color-text-muted)' }}>Type</th>
+                  <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600, fontSize: 11, color: 'var(--color-text-muted)' }}>Version</th>
+                  <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600, fontSize: 11, color: 'var(--color-text-muted)' }}>Statut</th>
+                  <th style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600, fontSize: 11, color: 'var(--color-text-muted)' }}>Date</th>
+                  <th style={{ padding: '6px 8px' }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {fichiers.map((f) => (
+                  <tr key={f.id} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
+                    <td style={{ padding: '6px 8px' }}>{f.nom_fichier}</td>
+                    <td style={{ padding: '6px 8px' }}>{TYPE_DOCUMENT_LABELS[f.type_document]}</td>
+                    <td style={{ padding: '6px 8px' }}>{f.version}</td>
+                    <td style={{ padding: '6px 8px' }}><span className="badge badge-gray">{f.statut}</span></td>
+                    <td style={{ padding: '6px 8px' }}>{formatDate(f.created_at)}</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'right' }}>
+                      <a
+                        href={f.url_onedrive}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-ghost btn-sm"
+                        style={{ fontSize: 12 }}
+                      >
+                        Ouvrir ↗
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-muted)' }}>Aucun fichier associé</p>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

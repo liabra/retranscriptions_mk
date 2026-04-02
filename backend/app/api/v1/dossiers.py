@@ -7,8 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from app.core.deps import DbDep, CurrentUser, require_admin_or_coordinator
 from app.models.dossier import Dossier, StatutDossierEnum
 from app.models.user import User, RoleEnum
-from app.schemas.dossier import DossierCreate, DossierUpdate, DossierQualify, DossierOut, DossierListItem
+from app.schemas.dossier import DossierCreate, DossierUpdate, DossierQualify, DossierOut, DossierListItem, DossierTransition
 from app.services.dossier import generate_reference, check_urgence
+from app.services.transition import transition_autorisee, transitions_disponibles
 from app.services.journal import log_action
 from app.models.journal import TypeActionEnum
 
@@ -185,6 +186,42 @@ def force_urgent(
         dossier_id=dossier.id,
         utilisateur_id=current_user.id,
         detail={"action": "urgence_forcee", "par": str(current_user.id)},
+    )
+
+    db.commit()
+    db.refresh(dossier)
+    return DossierOut.model_validate(dossier)
+
+
+@router.post("/{dossier_id}/transition", response_model=DossierOut)
+def transition_statut(
+    dossier_id: uuid.UUID,
+    payload: DossierTransition,
+    db: DbDep,
+    current_user: User = Depends(require_admin_or_coordinator),
+):
+    """Fait avancer le dossier dans le workflow après validation de la transition."""
+    dossier = db.query(Dossier).filter(Dossier.id == dossier_id).first()
+    if not dossier:
+        raise HTTPException(status_code=404, detail="Dossier introuvable")
+
+    if not transition_autorisee(dossier.statut, payload.statut):
+        autorisees = [s.value for s in transitions_disponibles(dossier.statut)]
+        raise HTTPException(
+            status_code=400,
+            detail=f"Transition '{dossier.statut.value}' -> '{payload.statut.value}' non autorisee. "
+                   f"Transitions possibles : {autorisees}",
+        )
+
+    ancien_statut = dossier.statut
+    dossier.statut = payload.statut
+
+    log_action(
+        db,
+        type_action=TypeActionEnum.STATUT,
+        dossier_id=dossier.id,
+        utilisateur_id=current_user.id,
+        detail={"ancien": ancien_statut.value, "nouveau": payload.statut.value},
     )
 
     db.commit()

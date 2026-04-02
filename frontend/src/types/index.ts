@@ -140,6 +140,66 @@ export interface PrestaCreate {
   iban?: string
 }
 
+// ─── Affectation ─────────────────────────────────────────────────────────────
+
+export type RoleAffectation = 'retranscripteur' | 'correcteur'
+export type StatutAffectation = 'en_attente' | 'en_cours' | 'livre' | 'valide' | 'rejete'
+
+export interface Affectation {
+  id: string
+  dossier_id: string
+  prestataire_id: string
+  type_role: RoleAffectation
+  statut: StatutAffectation
+  date_attribution: string
+  date_limite_rendu: string | null
+  date_rendu_effectif: string | null
+  montant_calcule: string | null
+  commentaire: string | null
+  grille_snap: Record<string, unknown> | null
+}
+
+export interface AffectationCreate {
+  prestataire_id: string
+  type_role: RoleAffectation
+  date_limite_rendu?: string
+  commentaire?: string
+}
+
+// ─── Fichier ─────────────────────────────────────────────────────────────────
+
+export type TypeDocument =
+  | 'audio_brut'
+  | 'retranscription_v1'
+  | 'retranscription_corrigee'
+  | 'document_paiement'
+  | 'document_client'
+  | 'facture'
+  | 'autre'
+
+export type StatutFichier = 'disponible' | 'archive' | 'obsolete'
+
+export interface FichierDossier {
+  id: string
+  dossier_id: string
+  uploaded_by_id: string | null
+  type_document: TypeDocument
+  nom_fichier: string
+  url_onedrive: string
+  version: string
+  statut: StatutFichier
+  commentaire: string | null
+  created_at: string
+}
+
+export interface FichierCreate {
+  type_document: TypeDocument
+  nom_fichier: string
+  url_onedrive: string
+  version?: string
+  commentaire?: string
+}
+
 // ─── API ─────────────────────────────────────────────────────────────────────
 
 export interface ApiError {

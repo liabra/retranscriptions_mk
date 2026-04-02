@@ -27,4 +27,9 @@ export const dossiersService = {
     const { data } = await apiClient.post<Dossier>(`/dossiers/${id}/force-urgent`)
     return data
   },
+
+  async transition(id: string, statut: StatutDossier): Promise<Dossier> {
+    const { data } = await apiClient.post<Dossier>(`/dossiers/${id}/transition`, { statut })
+    return data
+  },
 }
