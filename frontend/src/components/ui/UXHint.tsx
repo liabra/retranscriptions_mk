@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { useHints } from '@/contexts/HintsContext'
 
 interface UXHintProps {
@@ -10,35 +9,19 @@ interface UXHintProps {
 /**
  * Conseil contextuel UX.
  *
- * Rendu conditionnel :
- *   - Masqué si les conseils sont désactivés globalement (toggle dans l'interface)
- *   - Masqué si l'utilisateur a cliqué "Ne plus afficher" (stocké en localStorage)
- *   - Bouton ✕ masque pour la session en cours (state local)
- *   - Bouton "Ne plus afficher" persiste en localStorage
+ * - Masqué si les conseils sont désactivés globalement (toggle sidebar)
+ * - Masqué si dismissé dans la session (✕) ou définitivement ("Ne plus afficher")
+ * - L'état dismissal est géré dans HintsContext, pas en state local — le toggle
+ *   global "Afficher les conseils" réinitialise tous les hints immédiatement.
  *
- * Usage :
- *   <UXHint hintId="dossier_qualification">
- *     La qualification permet de saisir les critères tarifaires...
- *   </UXHint>
- *
- * Pour ajouter un nouveau hint : placer ce composant avec un hintId unique
- * à l'endroit voulu dans l'UI. Aucune configuration centrale nécessaire.
+ * Pour ajouter un nouveau hint :
+ *   <UXHint hintId="section_contexte">Texte du conseil</UXHint>
+ * Aucune configuration centrale nécessaire.
  */
 export function UXHint({ hintId, children }: UXHintProps) {
-  const { enabled } = useHints()
-  const storageKey = `ux_hint_dismissed_${hintId}`
-  const [dismissed, setDismissed] = useState(() => localStorage.getItem(storageKey) === '1')
+  const { enabled, dismissedHints, dismiss } = useHints()
 
-  if (!enabled || dismissed) return null
-
-  function close() {
-    setDismissed(true)
-  }
-
-  function dismissForever() {
-    localStorage.setItem(storageKey, '1')
-    setDismissed(true)
-  }
+  if (!enabled || dismissedHints.has(hintId)) return null
 
   return (
     <div
@@ -59,7 +42,7 @@ export function UXHint({ hintId, children }: UXHintProps) {
       <div style={{ flex: 1, color: 'var(--color-text)' }}>{children}</div>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
         <button
-          onClick={close}
+          onClick={() => dismiss(hintId, false)}
           title="Fermer"
           aria-label="Fermer ce conseil"
           style={{
@@ -75,7 +58,7 @@ export function UXHint({ hintId, children }: UXHintProps) {
           ✕
         </button>
         <button
-          onClick={dismissForever}
+          onClick={() => dismiss(hintId, true)}
           style={{
             background: 'none',
             border: 'none',

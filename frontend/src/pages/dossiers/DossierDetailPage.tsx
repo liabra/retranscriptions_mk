@@ -445,7 +445,8 @@ export function DossierDetailPage() {
   const correcteurAffecte = affectations.find(
     (a) => a.type_role === 'correcteur' && a.statut !== 'rejete',
   )
-  const criteres = dossier.criteres_tarif as Record<string, unknown> | null
+  const criteresRaw = dossier.criteres_tarif as Record<string, unknown> | null
+  const criteres = criteresRaw && Object.keys(criteresRaw).length > 0 ? criteresRaw : null
 
   return (
     <div className="page">
