@@ -10,6 +10,9 @@ import { DossierCreatePage } from '@/pages/dossiers/DossierCreatePage'
 import { DossierDetailPage } from '@/pages/dossiers/DossierDetailPage'
 import { ClientsListPage } from '@/pages/clients/ClientsListPage'
 import { PrestatairesListPage } from '@/pages/prestataires/PrestatairesListPage'
+import { GrillesPage } from '@/pages/grilles/GrillesPage'
+import { GrilleDetailPage } from '@/pages/grilles/GrilleDetailPage'
+import { MissionsPage } from '@/pages/missions/MissionsPage'
 
 export const router = createBrowserRouter([
   {
@@ -57,6 +60,28 @@ export const router = createBrowserRouter([
           </ProtectedRoute>
         ),
       },
+      {
+        path: 'grilles',
+        children: [
+          {
+            index: true,
+            element: (
+              <ProtectedRoute allowedRoles={['administratrice', 'coordinatrice']}>
+                <GrillesPage />
+              </ProtectedRoute>
+            ),
+          },
+          {
+            path: ':id',
+            element: (
+              <ProtectedRoute allowedRoles={['administratrice', 'coordinatrice']}>
+                <GrilleDetailPage />
+              </ProtectedRoute>
+            ),
+          },
+        ],
+      },
+      { path: 'missions', element: <MissionsPage /> },
     ],
   },
 ])

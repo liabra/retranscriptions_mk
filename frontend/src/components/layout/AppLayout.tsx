@@ -13,6 +13,10 @@ const ADMIN_NAV = [
   { to: '/grilles', icon: '⚙', label: 'Grilles tarifaires' },
 ]
 
+const PRESTATAIRE_NAV = [
+  { to: '/missions', icon: '✓', label: 'Mes missions' },
+]
+
 export function AppLayout() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
@@ -21,6 +25,9 @@ export function AppLayout() {
     logout()
     navigate('/login')
   }
+
+  const isPrestataire = user?.role === 'retranscripteur' || user?.role === 'correcteur'
+  const isAdminOrCoord = user?.role === 'administratrice' || user?.role === 'coordinatrice'
 
   return (
     <div className="app-layout">
@@ -43,7 +50,23 @@ export function AppLayout() {
             </NavLink>
           ))}
 
-          {user?.role === 'administratrice' && (
+          {isPrestataire && (
+            <>
+              <div className="nav-section-title" style={{ marginTop: 8 }}>Mon espace</div>
+              {PRESTATAIRE_NAV.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
+                >
+                  <em className="nav-link-icon">{item.icon}</em>
+                  {item.label}
+                </NavLink>
+              ))}
+            </>
+          )}
+
+          {isAdminOrCoord && (
             <>
               <div className="nav-section-title" style={{ marginTop: 8 }}>Administration</div>
               {ADMIN_NAV.map((item) => (
