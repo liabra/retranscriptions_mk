@@ -198,7 +198,6 @@ export function DossierDetailPage() {
 
   const isAdminOrCoord = user?.role === 'administratrice' || user?.role === 'coordinatrice'
   const isCompta = user?.role === 'comptabilite'
-  const isPrestataire = user?.role === 'retranscripteur' || user?.role === 'correcteur'
   const canManageFinance = isAdminOrCoord || isCompta
 
   useEffect(() => {
@@ -592,13 +591,13 @@ export function DossierDetailPage() {
               <CritereTag label="Urgent" value={Boolean(criteres.urgence)} />
               <CritereTag label="SNP" value={Boolean(criteres.sans_prise_de_note)} />
               <CritereTag label="Spécial" value={Boolean(criteres.prestation_speciale)} />
-              {criteres.type_prestation_speciale && (
+              {Boolean(criteres.type_prestation_speciale) && (
                 <div style={{ fontSize: 13 }}>
                   <span style={{ color: 'var(--color-text-muted)', fontSize: 11 }}>Type spécial</span><br />
                   {String(criteres.type_prestation_speciale)}
                 </div>
               )}
-              {criteres.volume_estime_pages && (
+              {Boolean(criteres.volume_estime_pages) && (
                 <div style={{ fontSize: 13 }}>
                   <span style={{ color: 'var(--color-text-muted)', fontSize: 11 }}>Volume estimé</span><br />
                   {String(criteres.volume_estime_pages)} pages
