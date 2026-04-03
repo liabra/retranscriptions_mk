@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/features/auth/AuthContext'
 import { ROLE_LABELS } from '@/utils/statuts'
+import { HintsProvider, useHints } from '@/contexts/HintsContext'
 
 const NAV_ITEMS = [
   { to: '/dashboard', icon: '◻', label: 'Dashboard' },
@@ -18,8 +19,17 @@ const PRESTATAIRE_NAV = [
 ]
 
 export function AppLayout() {
+  return (
+    <HintsProvider>
+      <AppLayoutInner />
+    </HintsProvider>
+  )
+}
+
+function AppLayoutInner() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const { enabled: hintsEnabled, toggle: toggleHints } = useHints()
 
   function handleLogout() {
     logout()
@@ -89,6 +99,14 @@ export function AppLayout() {
           <button
             className="btn btn-ghost btn-sm"
             style={{ marginTop: 8, width: '100%', justifyContent: 'flex-start', color: 'rgba(255,255,255,.5)', padding: '4px 0' }}
+            onClick={toggleHints}
+            title={hintsEnabled ? 'Masquer les conseils contextuels' : 'Afficher les conseils contextuels'}
+          >
+            {hintsEnabled ? '💡 Masquer les conseils' : '💡 Afficher les conseils'}
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            style={{ marginTop: 4, width: '100%', justifyContent: 'flex-start', color: 'rgba(255,255,255,.5)', padding: '4px 0' }}
             onClick={handleLogout}
           >
             Déconnexion

@@ -17,6 +17,7 @@ import type {
 } from '@/types'
 import { StatusBadge, UrgentBadge } from '@/components/ui/StatusBadge'
 import { PageLoader } from '@/components/ui/Spinner'
+import { UXHint } from '@/components/ui/UXHint'
 import { formatDate, formatDateTime, isRetard, STATUT_LABELS } from '@/utils/statuts'
 import { useAuth } from '@/features/auth/AuthContext'
 
@@ -545,6 +546,13 @@ export function DossierDetailPage() {
             </button>
           }
         >
+          {!criteres && !showQualifForm && (
+            <UXHint hintId="dossier_qualification">
+              La qualification permet de définir les critères tarifaires du dossier : urgence, type de prestation,
+              volume estimé en pages. Ces critères sont utilisés par le moteur de calcul pour calculer
+              automatiquement les montants client et prestataires. À remplir avant le calcul tarifaire.
+            </UXHint>
+          )}
           {showQualifForm ? (
             <form onSubmit={handleQualifSubmit}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -622,6 +630,13 @@ export function DossierDetailPage() {
             </button>
           }
         >
+          {affectations.length === 0 && !showAffectForm && (
+            <UXHint hintId="dossier_affectation">
+              Affectez un <strong>retranscripteur</strong> et un <strong>correcteur</strong> à ce dossier.
+              Une fois affectés, ils accèdent au dossier depuis leur espace "Mes missions" et peuvent
+              déclarer la livraison. L'affectation est nécessaire avant de lancer le calcul tarifaire.
+            </UXHint>
+          )}
           <div style={{ display: 'flex', gap: 32, marginBottom: 16 }}>
             <div>
               <div style={{ fontSize: 11, color: 'var(--color-text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Retranscripteur</div>
@@ -713,6 +728,14 @@ export function DossierDetailPage() {
             </div>
           }
         >
+          {!calcul && !showCalculForm && (
+            <UXHint hintId="dossier_calcul">
+              Le calcul tarifaire applique automatiquement les grilles de tarifs configurées.
+              Il nécessite : des <strong>critères de qualification</strong> saisis, des <strong>affectations</strong>
+              prestataires actives, et des grilles tarifaires actives. Renseignez le nombre de pages final
+              pour lancer le calcul. Vous pourrez ensuite ajuster manuellement et valider.
+            </UXHint>
+          )}
           {showCalculForm && (
             <form onSubmit={handleCalculer} style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', padding: 16, marginBottom: 16 }}>
               <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
@@ -845,6 +868,14 @@ export function DossierDetailPage() {
             ) : undefined
           }
         >
+          {!facture && !showFactureForm && calcul && (
+            <UXHint hintId="dossier_facture">
+              La facture est générée à partir du montant TTC issu du calcul tarifaire validé.
+              Indiquez si la TVA est applicable (associations en règle générale non assujetties).
+              Une fois générée, la facture est disponible en PDF et son statut de paiement
+              peut être mis à jour (non payée → partiellement → soldée).
+            </UXHint>
+          )}
           {showFactureForm && (
             <div style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', padding: 16, marginBottom: 16 }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginBottom: 12 }}>
@@ -961,6 +992,13 @@ export function DossierDetailPage() {
           ) : undefined
         }
       >
+        {fichiers.length === 0 && !showFichierForm && (
+          <UXHint hintId="dossier_fichiers">
+            Les fichiers sont stockés sur <strong>OneDrive</strong> — seul le lien de partage est enregistré
+            ici. Collez l'URL de partage OneDrive du fichier (audio, retranscription, facture…).
+            Le lien doit être accessible aux personnes concernées sur votre tenant Microsoft 365.
+          </UXHint>
+        )}
         {showFichierForm && (
           <form onSubmit={handleFichierSubmit} style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', padding: 16, marginBottom: 16 }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
