@@ -22,4 +22,10 @@ export const facturesService = {
       .patch(`/factures/${factureId}/paiement`, { statut_paiement })
       .then((r) => r.data)
   },
+
+  getPdfUrl(factureId: string): string {
+    // Retourne l'URL de la route PDF (à ouvrir dans un nouvel onglet)
+    const base = (apiClient.defaults.baseURL ?? '').replace(/\/$/, '')
+    return `${base}/factures/${factureId}/pdf`
+  },
 }

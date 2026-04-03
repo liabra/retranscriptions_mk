@@ -32,4 +32,16 @@ export const dossiersService = {
     const { data } = await apiClient.post<Dossier>(`/dossiers/${id}/transition`, { statut })
     return data
   },
+
+  async qualify(
+    id: string,
+    payload: {
+      criteres_tarif: Record<string, unknown>
+      duree_audio_minutes?: number
+      date_limite?: string
+    },
+  ): Promise<Dossier> {
+    const { data } = await apiClient.post<Dossier>(`/dossiers/${id}/qualify`, payload)
+    return data
+  },
 }

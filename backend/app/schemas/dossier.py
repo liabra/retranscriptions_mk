@@ -41,6 +41,9 @@ class DossierUpdate(BaseModel):
     notes_internes: Optional[str] = None
     date_limite: Optional[date] = None
     niveau_confidentialite: Optional[NiveauConfidentialiteEnum] = None
+    criteres_tarif: Optional[Dict[str, Any]] = None
+    duree_audio_minutes: Optional[int] = None
+    nombre_pages_final: Optional[Decimal] = None
 
 
 class DossierOut(BaseModel):

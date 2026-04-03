@@ -37,13 +37,21 @@ def list_dossiers(
 ):
     q = db.query(Dossier)
 
-    # Prestataires ne voient que leurs dossiers
+    # Prestataires ne voient que leurs dossiers (via profil prestataire lié par email)
     if current_user.role in (RoleEnum.RETRANSCRIPTEUR, RoleEnum.CORRECTEUR):
         from app.models.affectation import Affectation
-        assigned = db.query(Affectation.dossier_id).filter(
-            Affectation.prestataire_id == current_user.id
-        )
-        q = q.filter(Dossier.id.in_(assigned))
+        from app.models.prestataire import Prestataire
+        presta = db.query(Prestataire).filter(
+            Prestataire.email == current_user.email,
+            Prestataire.actif == True,
+        ).first()
+        if presta:
+            assigned = db.query(Affectation.dossier_id).filter(
+                Affectation.prestataire_id == presta.id
+            )
+            q = q.filter(Dossier.id.in_(assigned))
+        else:
+            q = q.filter(False)  # aucun dossier si pas de profil presta
 
     if statut:
         q = q.filter(Dossier.statut == statut)
@@ -137,28 +145,34 @@ def qualify_dossier(
     db: DbDep,
     current_user: User = Depends(require_admin_or_coordinator),
 ):
-    """Étape 2 du workflow — saisie des critères de tarification."""
+    """Saisie/mise à jour des critères de tarification. Passe en EN_QUALIFICATION si statut RECU."""
     dossier = db.query(Dossier).filter(Dossier.id == dossier_id).first()
     if not dossier:
         raise HTTPException(status_code=404, detail="Dossier introuvable")
-    if dossier.statut != StatutDossierEnum.RECU:
-        raise HTTPException(status_code=400, detail=f"Statut actuel {dossier.statut.value} ne permet pas la qualification")
 
     dossier.criteres_tarif = payload.criteres_tarif
-    dossier.statut = StatutDossierEnum.EN_QUALIFICATION
     if payload.date_limite:
         dossier.date_limite = payload.date_limite
         dossier.est_urgent = check_urgence(payload.date_limite)
     if payload.duree_audio_minutes:
         dossier.duree_audio_minutes = payload.duree_audio_minutes
 
+    ancien_statut = dossier.statut.value
+    # Transition automatique RECU → EN_QUALIFICATION
+    if dossier.statut == StatutDossierEnum.RECU:
+        dossier.statut = StatutDossierEnum.EN_QUALIFICATION
+
     log_action(
         db,
         type_action=TypeActionEnum.STATUT,
         dossier_id=dossier.id,
         utilisateur_id=current_user.id,
-        detail={"ancien": StatutDossierEnum.RECU.value, "nouveau": StatutDossierEnum.EN_QUALIFICATION.value,
-                "criteres": payload.criteres_tarif},
+        detail={
+            "action": "qualification",
+            "ancien": ancien_statut,
+            "nouveau": dossier.statut.value,
+            "criteres": payload.criteres_tarif,
+        },
     )
 
     db.commit()

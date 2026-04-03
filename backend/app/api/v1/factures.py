@@ -3,9 +3,11 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import HTMLResponse, Response
 
 from app.core.deps import DbDep, CurrentUser, require_admin_or_coordinator
 from app.models.dossier import Dossier
+from app.models.client import Client
 from app.models.facture import FactureClient, StatutPaiementEnum
 from app.models.pricing.calcul import CalculTarifaire
 from app.models.user import User
@@ -111,6 +113,130 @@ def get_facture(facture_id: uuid.UUID, db: DbDep, current_user: CurrentUser):
     if not facture:
         raise HTTPException(status_code=404, detail="Facture introuvable")
     return facture
+
+
+def _build_facture_html(facture: FactureClient, dossier: Dossier, payeur: Client) -> str:
+    tva_line = ""
+    if facture.tva_applicable:
+        tva_line = f"""
+        <tr>
+            <td>TVA ({facture.taux_tva}%)</td>
+            <td style="text-align:right">{float(facture.montant_tva):.2f} €</td>
+        </tr>"""
+    echeance = facture.date_echeance.strftime("%d/%m/%Y") if facture.date_echeance else "À réception"
+    return f"""<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<style>
+  body {{ font-family: Arial, sans-serif; font-size: 12px; color: #111; margin: 40px; }}
+  h1 {{ font-size: 20px; margin-bottom: 4px; }}
+  .subtitle {{ color: #666; margin-bottom: 24px; }}
+  .grid {{ display: flex; gap: 40px; margin-bottom: 24px; }}
+  .block {{ flex: 1; }}
+  .label {{ color: #666; font-size: 11px; text-transform: uppercase; margin-bottom: 2px; }}
+  table {{ width: 100%; border-collapse: collapse; margin-top: 16px; }}
+  th {{ background: #f4f4f4; padding: 8px; text-align: left; font-size: 11px; text-transform: uppercase; }}
+  td {{ padding: 8px; border-bottom: 1px solid #eee; }}
+  .total-row td {{ font-weight: bold; font-size: 14px; background: #f9f9f9; }}
+  .footer {{ margin-top: 40px; font-size: 11px; color: #999; }}
+  .badge {{ display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; }}
+  .badge-green {{ background: #d1fae5; color: #065f46; }}
+  .badge-gray {{ background: #f3f4f6; color: #374151; }}
+</style>
+</head>
+<body>
+<h1>FACTURE {facture.numero_facture}</h1>
+<div class="subtitle">
+  Émise le {facture.date_emission.strftime("%d/%m/%Y")} ·
+  Dossier {dossier.reference}
+</div>
+
+<div class="grid">
+  <div class="block">
+    <div class="label">Destinataire</div>
+    <strong>{payeur.nom}</strong><br>
+    {payeur.type if payeur.type else ""}
+  </div>
+  <div class="block">
+    <div class="label">Référence dossier</div>
+    <strong>{dossier.reference}</strong><br>
+    {dossier.type_instance.value if dossier.type_instance else ""}
+    {(" — " + dossier.titre) if dossier.titre else ""}
+  </div>
+  <div class="block">
+    <div class="label">Échéance</div>
+    <strong>{echeance}</strong>
+  </div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Description</th>
+      <th style="text-align:right">Montant</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Prestation de retranscription — {dossier.reference}</td>
+      <td style="text-align:right">{float(facture.montant_ht):.2f} €</td>
+    </tr>
+    {tva_line}
+    <tr class="total-row">
+      <td>TOTAL TTC</td>
+      <td style="text-align:right">{float(facture.montant_ttc):.2f} €</td>
+    </tr>
+  </tbody>
+</table>
+
+<div style="margin-top:16px">
+  Statut : <span class="badge {'badge-green' if facture.statut_paiement.value == 'soldee' else 'badge-gray'}">
+    {'Soldée' if facture.statut_paiement.value == 'soldee' else 'En attente de paiement'}
+  </span>
+</div>
+
+<div class="footer">
+  Document généré automatiquement — Système de gestion des retranscriptions
+</div>
+</body>
+</html>"""
+
+
+@router.get("/factures/{facture_id}/html", response_class=HTMLResponse)
+def get_facture_html(facture_id: uuid.UUID, db: DbDep, current_user: CurrentUser):
+    facture = db.query(FactureClient).filter(FactureClient.id == facture_id).first()
+    if not facture:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+    dossier = db.query(Dossier).filter(Dossier.id == facture.dossier_id).first()
+    payeur = db.query(Client).filter(Client.id == facture.payeur_id).first()
+    if not dossier or not payeur:
+        raise HTTPException(status_code=500, detail="Données manquantes pour générer la facture")
+    return HTMLResponse(content=_build_facture_html(facture, dossier, payeur))
+
+
+@router.get("/factures/{facture_id}/pdf")
+def get_facture_pdf(facture_id: uuid.UUID, db: DbDep, current_user: CurrentUser):
+    facture = db.query(FactureClient).filter(FactureClient.id == facture_id).first()
+    if not facture:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+    dossier = db.query(Dossier).filter(Dossier.id == facture.dossier_id).first()
+    payeur = db.query(Client).filter(Client.id == facture.payeur_id).first()
+    if not dossier or not payeur:
+        raise HTTPException(status_code=500, detail="Données manquantes")
+
+    html = _build_facture_html(facture, dossier, payeur)
+    try:
+        from weasyprint import HTML
+        pdf_bytes = HTML(string=html).write_pdf()
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="{facture.numero_facture}.pdf"'},
+        )
+    except Exception as e:
+        # Fallback HTML si WeasyPrint indisponible (env sans GTK)
+        return HTMLResponse(content=html, status_code=200)
 
 
 @router.patch("/factures/{facture_id}/paiement", response_model=FactureOut)

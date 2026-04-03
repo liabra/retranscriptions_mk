@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { grillesService } from '@/services/grilles.service'
-import type { GrilleTarifaire, GrilleCreate, TypeGrille } from '@/types'
+import { clientsService } from '@/services/clients.service'
+import { prestatairesService } from '@/services/prestataires.service'
+import type { GrilleTarifaire, GrilleCreate, TypeGrille, Client, Prestataire } from '@/types'
 import { PageLoader } from '@/components/ui/Spinner'
 import { formatDate } from '@/utils/statuts'
 
@@ -26,6 +28,8 @@ const EMPTY_FORM: GrilleCreate = {
 export function GrillesPage() {
   const navigate = useNavigate()
   const [grilles, setGrilles] = useState<GrilleTarifaire[]>([])
+  const [clients, setClients] = useState<Client[]>([])
+  const [prestataires, setPrestataires] = useState<Prestataire[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<GrilleCreate>(EMPTY_FORM)
@@ -33,10 +37,21 @@ export function GrillesPage() {
   const [error, setError] = useState('')
   const [formError, setFormError] = useState('')
 
+  // Lookup maps for cible_id resolution in the table
+  const clientMap = Object.fromEntries(clients.map((c) => [c.id, c.nom]))
+  const prestaMap = Object.fromEntries(prestataires.map((p) => [p.id, p.nom]))
+
   useEffect(() => {
-    grillesService
-      .list()
-      .then(setGrilles)
+    Promise.all([
+      grillesService.list(),
+      clientsService.list(false),
+      prestatairesService.list({ actif_only: false }),
+    ])
+      .then(([g, c, p]) => {
+        setGrilles(g)
+        setClients(c)
+        setPrestataires(p)
+      })
       .catch((e) => setError(e.message))
       .finally(() => setIsLoading(false))
   }, [])
@@ -150,6 +165,7 @@ export function GrillesPage() {
                       setForm((f) => ({
                         ...f,
                         cible: e.target.value as GrilleCreate['cible'],
+                        cible_id: undefined,
                       }))
                     }
                   >
@@ -158,6 +174,38 @@ export function GrillesPage() {
                     <option value="prestataire_specifique">Prestataire spécifique</option>
                   </select>
                 </div>
+                {form.cible === 'client_specifique' && (
+                  <div>
+                    <label className="form-label">Client</label>
+                    <select
+                      className="form-input"
+                      value={form.cible_id ?? ''}
+                      onChange={(e) => setForm((f) => ({ ...f, cible_id: e.target.value || undefined }))}
+                      required
+                    >
+                      <option value="">— Sélectionner —</option>
+                      {clients.map((c) => (
+                        <option key={c.id} value={c.id}>{c.nom}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {form.cible === 'prestataire_specifique' && (
+                  <div>
+                    <label className="form-label">Prestataire</label>
+                    <select
+                      className="form-input"
+                      value={form.cible_id ?? ''}
+                      onChange={(e) => setForm((f) => ({ ...f, cible_id: e.target.value || undefined }))}
+                      required
+                    >
+                      <option value="">— Sélectionner —</option>
+                      {prestataires.map((p) => (
+                        <option key={p.id} value={p.id}>{p.nom}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label className="form-label">Description</label>
                   <input
@@ -233,7 +281,11 @@ export function GrillesPage() {
                       <span className="badge badge-blue">{TYPE_GRILLE_LABELS[g.type]}</span>
                     </td>
                     <td style={{ padding: '10px 12px' }}>
-                      {g.cible === 'global' ? '—' : g.cible}
+                      {g.cible === 'global'
+                        ? '—'
+                        : g.cible === 'client_specifique'
+                        ? clientMap[g.cible_id ?? ''] ?? 'Client spécifique'
+                        : prestaMap[g.cible_id ?? ''] ?? 'Prestataire spécifique'}
                     </td>
                     <td style={{ padding: '10px 12px' }}>{g.version}</td>
                     <td style={{ padding: '10px 12px' }}>{formatDate(g.date_debut)}</td>
