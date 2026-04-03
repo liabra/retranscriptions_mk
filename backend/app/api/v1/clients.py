@@ -11,7 +11,7 @@ from app.schemas.client import ClientCreate, ClientUpdate, ClientOut
 router = APIRouter()
 
 
-@router.get("/", response_model=List[ClientOut])
+@router.get("", response_model=List[ClientOut])
 def list_clients(
     db: DbDep,
     _user: User = Depends(require_admin_or_coordinator),
@@ -23,7 +23,7 @@ def list_clients(
     return q.order_by(Client.nom).all()
 
 
-@router.post("/", response_model=ClientOut, status_code=201)
+@router.post("", response_model=ClientOut, status_code=201)
 def create_client(
     payload: ClientCreate,
     db: DbDep,

@@ -25,7 +25,7 @@ def _check_access(user: User, dossier: Dossier) -> None:
             raise HTTPException(status_code=403, detail="Accès non autorisé à ce dossier")
 
 
-@router.get("/", response_model=List[DossierListItem])
+@router.get("", response_model=List[DossierListItem])
 def list_dossiers(
     db: DbDep,
     current_user: CurrentUser,
@@ -65,7 +65,7 @@ def list_dossiers(
     return q.offset(offset).limit(limit).all()
 
 
-@router.post("/", response_model=DossierOut, status_code=201)
+@router.post("", response_model=DossierOut, status_code=201)
 def create_dossier(
     payload: DossierCreate,
     request: Request,

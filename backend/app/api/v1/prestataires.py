@@ -12,7 +12,7 @@ from app.schemas.prestataire import PrestaCreate, PrestaUpdate, PrestaOut
 router = APIRouter()
 
 
-@router.get("/", response_model=List[PrestaOut])
+@router.get("", response_model=List[PrestaOut])
 def list_prestataires(
     db: DbDep,
     _user: User = Depends(require_admin_or_coordinator),
@@ -27,7 +27,7 @@ def list_prestataires(
     return q.order_by(Prestataire.nom).all()
 
 
-@router.post("/", response_model=PrestaOut, status_code=201)
+@router.post("", response_model=PrestaOut, status_code=201)
 def create_prestataire(
     payload: PrestaCreate,
     db: DbDep,
