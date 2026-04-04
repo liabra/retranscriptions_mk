@@ -18,6 +18,7 @@ import type {
 import { StatusBadge, UrgentBadge } from '@/components/ui/StatusBadge'
 import { PageLoader } from '@/components/ui/Spinner'
 import { UXHint } from '@/components/ui/UXHint'
+import { TarifForfait } from '@/components/ui/TarifForfait'
 import { formatDate, formatDateTime, isRetard, STATUT_LABELS } from '@/utils/statuts'
 import { useAuth } from '@/features/auth/AuthContext'
 
@@ -729,14 +730,12 @@ export function DossierDetailPage() {
             </div>
           }
         >
-          {!calcul && !showCalculForm && (
-            <UXHint hintId="dossier_calcul">
-              Le calcul tarifaire applique automatiquement les grilles de tarifs configurées.
-              Il nécessite : des <strong>critères de qualification</strong> saisis, des <strong>affectations</strong>
-              prestataires actives, et des grilles tarifaires actives. Renseignez le nombre de pages final
-              pour lancer le calcul. Vous pourrez ensuite ajuster manuellement et valider.
-            </UXHint>
-          )}
+          {/* Grille forfaitaire A2C — toujours visible, met en évidence la tranche applicable */}
+          <TarifForfait
+            pages={dossier.nombre_pages_final ? Number(dossier.nombre_pages_final) : undefined}
+            dureeAudioMinutes={dossier.duree_audio_minutes ?? undefined}
+          />
+
           {showCalculForm && (
             <form onSubmit={handleCalculer} style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', padding: 16, marginBottom: 16 }}>
               <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>

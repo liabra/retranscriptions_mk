@@ -1,14 +1,24 @@
 """
-Seed des grilles tarifaires minimales pour les tests métier.
+Seed des grilles tarifaires A2C.
 Idempotent — vérifie si les grilles existent avant de les créer.
 
 Usage :
     python seed_grilles.py
 
-Tarifs de démonstration (à ajuster selon le réel) :
-  Client      : 0.45 €/page (base) + majoration urgence 30%
-  Retrans.    : 0.25 €/page (base) + majoration urgence 20%
-  Correcteur  : 0.12 €/page (base)
+Tarifs réels A2C (modalités de retranscription) :
+  Grille client : forfait par tranche de pages
+    1–9 p   → 50 €    |  10–20 p  → 100 €  |  21–30 p  → 150 €
+    31–40 p → 200 €   |  41–50 p  → 250 €  |  51–60 p  → 300 €
+    61–70 p → 350 €   |  71–80 p  → 400 €  |  81–90 p  → 450 €
+    91–100 p→ 500 €
+
+  NOTE : le moteur PAR_PAGE utilise un taux moyen (5 €/page).
+  Le forfait réel est calculé et affiché directement dans l'interface
+  (composant TarifForfait) à partir du nombre de pages final.
+
+  Retranscripteur : 0.25 €/page (base)
+  Correcteur      : 0.12 €/page (base)
+  Urgence         : +30 % sur base client
 """
 import os
 from datetime import date
@@ -28,14 +38,16 @@ GRILLES_DEMO = [
         "nom": "Tarif client standard",
         "type": TypeGrilleEnum.CLIENT,
         "cible": CibleGrilleEnum.GLOBAL,
-        "version": "1.0",
+        "version": "2.0",
         "regles": [
             {
-                "libelle": "Tarif de base client",
+                # Taux moyen approché : 500 € / 100 pages = 5 €/page.
+                # Le forfait réel par tranche est calculé dans le frontend (TarifForfait).
+                "libelle": "Taux moyen client (référence moteur)",
                 "type_regle": TypeRegleEnum.BASE,
                 "condition_type": ConditionTypeEnum.TOUJOURS,
                 "mode_calcul": ModeCalculEnum.PAR_PAGE,
-                "valeur": Decimal("0.45"),
+                "valeur": Decimal("5.00"),
                 "unite": "€/page",
                 "priorite": 10,
             },
