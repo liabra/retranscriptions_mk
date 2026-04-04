@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { to: '/dossiers', icon: '📋', label: 'Dossiers' },
   { to: '/clients', icon: '🏢', label: 'Clients' },
   { to: '/prestataires', icon: '👤', label: 'Prestataires' },
+  { to: '/aide', icon: '?', label: 'Aide' },
 ]
 
 const ADMIN_NAV = [

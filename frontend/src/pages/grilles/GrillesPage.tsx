@@ -101,22 +101,31 @@ export function GrillesPage() {
       {showForm && (
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-header">
-            <h2 className="card-title">Nouvelle grille</h2>
+            <h2 className="card-title">Nouvelle grille tarifaire</h2>
           </div>
           <div className="card-body">
+            {/* Explication contextuelle */}
+            <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#1e40af', lineHeight: 1.6 }}>
+              ℹ️ Une grille définit le taux de rémunération des prestataires (retranscripteur, correcteur) ou les majorations (urgence).
+              Les grilles <strong>globales</strong> s'appliquent à tous les dossiers. Les grilles <strong>spécifiques</strong> s'appliquent à un client ou prestataire particulier et ont la priorité.
+              <br />Après création, vous pourrez ajouter les règles de calcul (taux, majorations...) depuis la fiche de la grille.
+            </div>
             <form onSubmit={handleCreate}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                 <div>
-                  <label className="form-label">Nom</label>
+                  <label className="form-label">Nom de la grille <span style={{ color: 'var(--color-danger)' }}>*</span></label>
                   <input
                     className="form-input"
+                    placeholder="ex: Tarif retranscripteur 2026"
                     value={form.nom}
                     onChange={(e) => setForm((f) => ({ ...f, nom: e.target.value }))}
                     required
                   />
                 </div>
                 <div>
-                  <label className="form-label">Type</label>
+                  <label className="form-label">
+                    À quoi sert cette grille ? <span style={{ color: 'var(--color-danger)' }}>*</span>
+                  </label>
                   <select
                     className="form-input"
                     value={form.type}
@@ -128,36 +137,9 @@ export function GrillesPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="form-label">Version</label>
-                  <input
-                    className="form-input"
-                    value={form.version ?? '1.0'}
-                    onChange={(e) => setForm((f) => ({ ...f, version: e.target.value }))}
-                  />
-                </div>
-                <div>
-                  <label className="form-label">Date début</label>
-                  <input
-                    className="form-input"
-                    type="date"
-                    value={form.date_debut}
-                    onChange={(e) => setForm((f) => ({ ...f, date_debut: e.target.value }))}
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="form-label">Date fin (optionnel)</label>
-                  <input
-                    className="form-input"
-                    type="date"
-                    value={form.date_fin ?? ''}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, date_fin: e.target.value || undefined }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="form-label">Cible</label>
+                  <label className="form-label">
+                    S'applique à…
+                  </label>
                   <select
                     className="form-input"
                     value={form.cible ?? 'global'}
@@ -169,9 +151,9 @@ export function GrillesPage() {
                       }))
                     }
                   >
-                    <option value="global">Globale</option>
-                    <option value="client_specifique">Client spécifique</option>
-                    <option value="prestataire_specifique">Prestataire spécifique</option>
+                    <option value="global">Tous les dossiers (globale)</option>
+                    <option value="client_specifique">Un client spécifique</option>
+                    <option value="prestataire_specifique">Un prestataire spécifique</option>
                   </select>
                 </div>
                 {form.cible === 'client_specifique' && (

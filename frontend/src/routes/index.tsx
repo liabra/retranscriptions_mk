@@ -14,6 +14,7 @@ import { GrillesPage } from '@/pages/grilles/GrillesPage'
 import { GrilleDetailPage } from '@/pages/grilles/GrilleDetailPage'
 import { MissionsPage } from '@/pages/missions/MissionsPage'
 import { UtilisateursPage } from '@/pages/utilisateurs/UtilisateursPage'
+import { AidePage } from '@/pages/aide/AidePage'
 
 export const router = createBrowserRouter([
   {
@@ -83,6 +84,7 @@ export const router = createBrowserRouter([
         ],
       },
       { path: 'missions', element: <MissionsPage /> },
+      { path: 'aide', element: <AidePage /> },
       {
         path: 'utilisateurs',
         element: (
