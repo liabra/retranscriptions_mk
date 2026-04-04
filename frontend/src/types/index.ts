@@ -15,6 +15,14 @@ export interface User {
   role: RoleEnum
   actif: boolean
   created_at: string
+  last_login: string | null
+}
+
+export interface UserUpdate {
+  nom?: string
+  role?: RoleEnum
+  actif?: boolean
+  password?: string
 }
 
 export interface TokenResponse {

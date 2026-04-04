@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Optional
 from pydantic import BaseModel, EmailStr
 from app.models.user import RoleEnum
 
@@ -11,6 +12,13 @@ class UserCreate(BaseModel):
     role: RoleEnum
 
 
+class UserUpdate(BaseModel):
+    nom: Optional[str] = None
+    role: Optional[RoleEnum] = None
+    actif: Optional[bool] = None
+    password: Optional[str] = None  # reset mot de passe
+
+
 class UserOut(BaseModel):
     id: uuid.UUID
     email: str
@@ -18,6 +26,7 @@ class UserOut(BaseModel):
     role: RoleEnum
     actif: bool
     created_at: datetime
+    last_login: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 

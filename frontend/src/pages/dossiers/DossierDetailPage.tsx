@@ -252,6 +252,18 @@ export function DossierDetailPage() {
 
   // ─── Handlers ─────────────────────────────────────────────────────────────
 
+  async function handleDeleteDossier() {
+    if (!id || !dossier) return
+    if (!confirm(`Supprimer définitivement le dossier ${dossier.reference} ? Cette action est irréversible.`)) return
+    try {
+      await dossiersService.delete(id)
+      navigate('/dossiers')
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      alert(typeof msg === 'string' ? msg : 'Erreur lors de la suppression')
+    }
+  }
+
   async function handleForceUrgent() {
     if (!id || !dossier) return
     try {
@@ -470,6 +482,15 @@ export function DossierDetailPage() {
           {isAdminOrCoord && !dossier.est_urgent && (
             <button className="btn btn-secondary btn-sm" onClick={handleForceUrgent}>
               Forcer urgent
+            </button>
+          )}
+          {isAdminOrCoord && (
+            <button
+              className="btn btn-secondary btn-sm"
+              style={{ color: 'var(--color-danger)', borderColor: 'var(--color-danger)' }}
+              onClick={handleDeleteDossier}
+            >
+              Supprimer
             </button>
           )}
         </div>

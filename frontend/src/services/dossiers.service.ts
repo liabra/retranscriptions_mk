@@ -33,6 +33,10 @@ export const dossiersService = {
     return data
   },
 
+  async delete(id: string): Promise<void> {
+    await apiClient.delete(`/dossiers/${id}`)
+  },
+
   async qualify(
     id: string,
     payload: {

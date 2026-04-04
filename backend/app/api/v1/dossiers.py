@@ -138,6 +138,32 @@ def update_dossier(
     return DossierOut.model_validate(dossier)
 
 
+@router.delete("/{dossier_id}", status_code=204)
+def delete_dossier(
+    dossier_id: uuid.UUID,
+    db: DbDep,
+    current_user: User = Depends(require_admin_or_coordinator),
+):
+    """Suppression définitive — réservée admin/coordinatrice. Bloquée si facture ou paiements existants."""
+    from app.models.facture import FactureClient
+    from app.models.paiement_presta import PaiementPrestataire
+    dossier = db.query(Dossier).filter(Dossier.id == dossier_id).first()
+    if not dossier:
+        raise HTTPException(status_code=404, detail="Dossier introuvable")
+    if db.query(FactureClient).filter(FactureClient.dossier_id == dossier_id).first():
+        raise HTTPException(status_code=400, detail="Impossible de supprimer : une facture existe pour ce dossier")
+    if db.query(PaiementPrestataire).filter(PaiementPrestataire.dossier_id == dossier_id).first():
+        raise HTTPException(status_code=400, detail="Impossible de supprimer : des paiements prestataires existent")
+    log_action(
+        db, TypeActionEnum.ARCHIVAGE,
+        dossier_id=dossier_id,
+        utilisateur_id=current_user.id,
+        detail={"action": "suppression_dossier", "reference": dossier.reference},
+    )
+    db.delete(dossier)
+    db.commit()
+
+
 @router.post("/{dossier_id}/qualify", response_model=DossierOut)
 def qualify_dossier(
     dossier_id: uuid.UUID,

@@ -11,6 +11,7 @@ const NAV_ITEMS = [
 ]
 
 const ADMIN_NAV = [
+  { to: '/utilisateurs', icon: '👥', label: 'Utilisateurs' },
   { to: '/grilles', icon: '⚙', label: 'Grilles tarifaires' },
 ]
 

@@ -13,6 +13,7 @@ import { PrestatairesListPage } from '@/pages/prestataires/PrestatairesListPage'
 import { GrillesPage } from '@/pages/grilles/GrillesPage'
 import { GrilleDetailPage } from '@/pages/grilles/GrilleDetailPage'
 import { MissionsPage } from '@/pages/missions/MissionsPage'
+import { UtilisateursPage } from '@/pages/utilisateurs/UtilisateursPage'
 
 export const router = createBrowserRouter([
   {
@@ -82,6 +83,14 @@ export const router = createBrowserRouter([
         ],
       },
       { path: 'missions', element: <MissionsPage /> },
+      {
+        path: 'utilisateurs',
+        element: (
+          <ProtectedRoute allowedRoles={['administratrice']}>
+            <UtilisateursPage />
+          </ProtectedRoute>
+        ),
+      },
     ],
   },
 ])

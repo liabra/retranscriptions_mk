@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { grillesService } from '@/services/grilles.service'
-import type { GrilleTarifaire, RegleTarifaire, RegleCreate, TypeRegle, ConditionType, ModeCalcul } from '@/types'
+import type { GrilleTarifaire, RegleTarifaire, RegleCreate, GrilleUpdate, TypeRegle, ConditionType, ModeCalcul } from '@/types'
 import { PageLoader } from '@/components/ui/Spinner'
 
 const TYPE_REGLE_LABELS: Record<TypeRegle, string> = {
@@ -59,6 +59,9 @@ export function GrilleDetailPage() {
   )
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
+  const [showEditForm, setShowEditForm] = useState(false)
+  const [editForm, setEditForm] = useState<GrilleUpdate>({})
+  const [savingEdit, setSavingEdit] = useState(false)
   const [showRegleForm, setShowRegleForm] = useState(false)
   const [regleForm, setRegleForm] = useState<RegleCreate>(EMPTY_REGLE)
   const [savingRegle, setSavingRegle] = useState(false)
@@ -72,6 +75,35 @@ export function GrilleDetailPage() {
       .catch((e) => setError(e.message))
       .finally(() => setIsLoading(false))
   }, [id])
+
+  function openEditForm() {
+    if (!grille) return
+    setEditForm({ nom: grille.nom, version: grille.version ?? '', description: grille.description ?? '' })
+    setShowEditForm(true)
+  }
+
+  async function handleEditSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!id || !grille) return
+    setSavingEdit(true)
+    try {
+      const updated = await grillesService.update(id, editForm)
+      setGrille((prev) => prev ? { ...prev, ...updated } : prev)
+      setShowEditForm(false)
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      alert(typeof detail === 'string' ? detail : 'Erreur')
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
+  async function handleDeactivate() {
+    if (!id || !grille) return
+    if (!confirm(`Désactiver la grille "${grille.nom}" ?`)) return
+    await grillesService.deactivate(id)
+    setGrille((prev) => prev ? { ...prev, active: false } : prev)
+  }
 
   async function handleCreateRegle(e: React.FormEvent) {
     e.preventDefault()
@@ -129,13 +161,64 @@ export function GrilleDetailPage() {
             )}
           </p>
         </div>
-        <button
-          className="btn btn-primary btn-sm"
-          onClick={() => setShowRegleForm((v) => !v)}
-        >
-          {showRegleForm ? 'Annuler' : '+ Ajouter une règle'}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {grille.active && (
+            <button
+              className="btn btn-secondary btn-sm"
+              style={{ color: 'var(--color-danger)', borderColor: 'var(--color-danger)' }}
+              onClick={handleDeactivate}
+            >
+              Désactiver
+            </button>
+          )}
+          <button className="btn btn-secondary btn-sm" onClick={openEditForm}>
+            Modifier
+          </button>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => setShowRegleForm((v) => !v)}
+          >
+            {showRegleForm ? 'Annuler' : '+ Ajouter une règle'}
+          </button>
+        </div>
       </div>
+
+      {showEditForm && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-header">
+            <h2 className="card-title">Modifier la grille</h2>
+          </div>
+          <div className="card-body">
+            <form onSubmit={handleEditSubmit}>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
+                <div>
+                  <label className="form-label">Nom</label>
+                  <input className="form-input" value={editForm.nom ?? ''}
+                    onChange={(e) => setEditForm((f) => ({ ...f, nom: e.target.value }))} required />
+                </div>
+                <div>
+                  <label className="form-label">Version</label>
+                  <input className="form-input" value={editForm.version ?? ''}
+                    onChange={(e) => setEditForm((f) => ({ ...f, version: e.target.value }))} />
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label className="form-label">Description</label>
+                  <input className="form-input" value={editForm.description ?? ''}
+                    onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))} />
+                </div>
+              </div>
+              <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+                <button type="submit" className="btn btn-primary btn-sm" disabled={savingEdit}>
+                  {savingEdit ? '…' : 'Enregistrer'}
+                </button>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowEditForm(false)}>
+                  Annuler
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {grille.description && (
         <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 16 }}>
