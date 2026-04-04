@@ -5,7 +5,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.deps import DbDep, CurrentUser, require_admin_or_coordinator
-from app.models.dossier import Dossier
+from app.models.dossier import Dossier, StatutDossierEnum
 from app.models.affectation import Affectation, StatutAffectationEnum, RoleAffectationEnum
 from app.models.paiement import PaiementPrestataire, StatutPaiementPrestaEnum, RolePayeEnum
 from app.models.pricing.calcul import CalculTarifaire
@@ -146,6 +146,16 @@ def update_paiement(
 
     if payload.ajustement_manuel is not None:
         paiement.montant_final = paiement.montant_brut + payload.ajustement_manuel
+
+    # Auto-transition dossier → PRESTATAIRES_PAYES si tous les paiements sont payés
+    if getattr(payload, "statut", None) == "paye":
+        tous_paiements = db.query(PaiementPrestataire).filter(
+            PaiementPrestataire.dossier_id == paiement.dossier_id
+        ).all()
+        if tous_paiements and all(p.statut == StatutPaiementPrestaEnum.PAYE for p in tous_paiements):
+            dossier = db.query(Dossier).filter(Dossier.id == paiement.dossier_id).first()
+            if dossier and dossier.statut == StatutDossierEnum.PAYE_ENTRANT:
+                dossier.statut = StatutDossierEnum.PRESTATAIRES_PAYES
 
     log_action(
         db, TypeActionEnum.PAIEMENT,

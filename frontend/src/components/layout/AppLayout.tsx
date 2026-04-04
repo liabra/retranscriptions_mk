@@ -17,7 +17,7 @@ const ADMIN_NAV = [
 ]
 
 const PRESTATAIRE_NAV = [
-  { to: '/missions', icon: '✓', label: 'Mes missions' },
+  { to: '/mes-dossiers', icon: '✓', label: 'Mes missions' },
 ]
 
 export function AppLayout() {

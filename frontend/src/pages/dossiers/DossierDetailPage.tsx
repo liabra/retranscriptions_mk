@@ -201,6 +201,7 @@ export function DossierDetailPage() {
   const isAdminOrCoord = user?.role === 'administratrice' || user?.role === 'coordinatrice'
   const isCompta = user?.role === 'comptabilite'
   const canManageFinance = isAdminOrCoord || isCompta
+  const isPrestataire = user?.role === 'retranscripteur' || user?.role === 'correcteur'
 
   useEffect(() => {
     if (!id) return
@@ -473,8 +474,66 @@ export function DossierDetailPage() {
   const criteresRaw = dossier.criteres_tarif as Record<string, unknown> | null
   const criteres = criteresRaw && Object.keys(criteresRaw).length > 0 ? criteresRaw : null
 
+  // Affectation de l'utilisateur connecté (si prestataire)
+  const monAffectation = isPrestataire
+    ? affectations.find((a) => a.statut !== 'rejete' &&
+        ((user?.role === 'retranscripteur' && a.type_role === 'retranscripteur') ||
+         (user?.role === 'correcteur' && a.type_role === 'correcteur')))
+    : null
+
   return (
     <div className="page">
+      {/* ── Bannière action prestataire ──────────────────────────────── */}
+      {monAffectation && monAffectation.statut === 'en_cours' && (
+        <div style={{
+          background: 'var(--color-primary-light, #eff6ff)',
+          border: '1px solid var(--color-primary)',
+          borderRadius: 'var(--radius)',
+          padding: '14px 18px',
+          marginBottom: 16,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+        }}>
+          <div>
+            <strong style={{ fontSize: 14 }}>
+              {user?.role === 'retranscripteur' ? 'Mission de retranscription en cours' : 'Mission de correction en cours'}
+            </strong>
+            {monAffectation.date_limite_rendu && (
+              <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2 }}>
+                Date limite : {formatDate(monAffectation.date_limite_rendu)}
+              </div>
+            )}
+          </div>
+          <button
+            className="btn btn-primary"
+            onClick={async () => {
+              if (!confirm('Confirmer la livraison de votre travail sur ce dossier ?')) return
+              const updated = await affectationsService.update(monAffectation.id, { statut: 'livre' })
+              setAffectations((prev) => prev.map((a) => (a.id === updated.id ? updated : a)))
+              const refreshed = await dossiersService.get(id!)
+              setDossier(refreshed)
+            }}
+          >
+            J'ai terminé
+          </button>
+        </div>
+      )}
+      {monAffectation && monAffectation.statut === 'livre' && (
+        <div style={{
+          background: '#f0fdf4',
+          border: '1px solid var(--color-success)',
+          borderRadius: 'var(--radius)',
+          padding: '12px 18px',
+          marginBottom: 16,
+          fontSize: 14,
+          color: '#166534',
+        }}>
+          Travail livré — en attente de validation.
+        </div>
+      )}
+
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <div className="header-row">
         <div>

@@ -1,7 +1,11 @@
 import { apiClient } from './api'
-import type { Affectation, AffectationCreate } from '@/types'
+import type { Affectation, AffectationCreate, AffectationWithDossier } from '@/types'
 
 export const affectationsService = {
+  mesAffectations(): Promise<AffectationWithDossier[]> {
+    return apiClient.get('/mes-affectations').then((r) => r.data)
+  },
+
   list(dossierId: string): Promise<Affectation[]> {
     return apiClient.get(`/dossiers/${dossierId}/affectations`).then((r) => r.data)
   },

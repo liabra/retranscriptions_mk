@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse, Response
 
 from app.core.deps import DbDep, CurrentUser, require_admin_or_coordinator
-from app.models.dossier import Dossier
+from app.models.dossier import Dossier, StatutDossierEnum
 from app.models.client import Client
 from app.models.facture import FactureClient, StatutPaiementEnum
 from app.models.pricing.calcul import CalculTarifaire
@@ -81,8 +81,11 @@ def generer_facture(
         statut_paiement=StatutPaiementEnum.NON_PAYEE,
     )
     db.add(facture)
-    db.flush()
 
+    # Auto-transition dossier → FACTURE
+    dossier.statut = StatutDossierEnum.FACTURE
+
+    db.flush()
     log_action(
         db, TypeActionEnum.PAIEMENT,
         dossier_id=dossier_id,
@@ -274,6 +277,12 @@ def update_facture_paiement(
         facture.statut_paiement = StatutPaiementEnum(payload.statut_paiement)
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Statut invalide: {payload.statut_paiement}")
+
+    # Auto-transition dossier → PAYE_ENTRANT quand facture soldée
+    if facture.statut_paiement == StatutPaiementEnum.SOLDEE:
+        dossier = db.query(Dossier).filter(Dossier.id == facture.dossier_id).first()
+        if dossier and dossier.statut == StatutDossierEnum.FACTURE:
+            dossier.statut = StatutDossierEnum.PAYE_ENTRANT
 
     log_action(
         db, TypeActionEnum.PAIEMENT,

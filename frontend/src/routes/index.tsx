@@ -15,6 +15,7 @@ import { GrilleDetailPage } from '@/pages/grilles/GrilleDetailPage'
 import { MissionsPage } from '@/pages/missions/MissionsPage'
 import { UtilisateursPage } from '@/pages/utilisateurs/UtilisateursPage'
 import { AidePage } from '@/pages/aide/AidePage'
+import { MesDossiersPage } from '@/pages/prestataires/MesDossiersPage'
 
 export const router = createBrowserRouter([
   {
@@ -85,6 +86,14 @@ export const router = createBrowserRouter([
       },
       { path: 'missions', element: <MissionsPage /> },
       { path: 'aide', element: <AidePage /> },
+      {
+        path: 'mes-dossiers',
+        element: (
+          <ProtectedRoute allowedRoles={['retranscripteur', 'correcteur']}>
+            <MesDossiersPage />
+          </ProtectedRoute>
+        ),
+      },
       {
         path: 'utilisateurs',
         element: (

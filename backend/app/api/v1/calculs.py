@@ -5,7 +5,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.deps import DbDep, CurrentUser, require_admin_or_coordinator
-from app.models.dossier import Dossier
+from app.models.dossier import Dossier, StatutDossierEnum
 from app.models.affectation import Affectation, StatutAffectationEnum, RoleAffectationEnum
 from app.models.pricing.calcul import CalculTarifaire, StatutCalculEnum
 from app.models.user import User
@@ -252,6 +252,17 @@ def valider_calcul(
     ancien_statut = calcul.statut.value
     calcul.statut = StatutCalculEnum.DEFINITIF
     calcul.valide_par_id = admin.id
+
+    # Auto-transition dossier vers ENVOYE si le travail est terminé
+    dossier = db.query(Dossier).filter(Dossier.id == calcul.dossier_id).first()
+    if dossier and dossier.statut in (
+        StatutDossierEnum.EN_MISE_EN_FORME,
+        StatutDossierEnum.A_VALIDER,
+        StatutDossierEnum.EN_CORRECTION,
+        StatutDossierEnum.A_CORRIGER,
+        StatutDossierEnum.EN_RETRANSCRIPTION,
+    ):
+        dossier.statut = StatutDossierEnum.ENVOYE
 
     log_action(
         db, TypeActionEnum.CALCUL_TARIFAIRE,

@@ -167,6 +167,15 @@ export interface Affectation {
   grille_snap: Record<string, unknown> | null
 }
 
+export interface AffectationWithDossier extends Affectation {
+  dossier: {
+    id: string
+    reference: string
+    statut: StatutDossier
+    titre: string | null
+  }
+}
+
 export interface AffectationCreate {
   prestataire_id: string
   type_role: RoleAffectation

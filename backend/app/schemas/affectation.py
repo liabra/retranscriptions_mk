@@ -34,3 +34,15 @@ class AffectationOut(BaseModel):
     grille_snap: Optional[Dict[str, Any]]
 
     model_config = {"from_attributes": True}
+
+
+class DossierMinimalOut(BaseModel):
+    id: uuid.UUID
+    reference: str
+    statut: str
+    titre: Optional[str]
+    model_config = {"from_attributes": True}
+
+
+class AffectationWithDossierOut(AffectationOut):
+    dossier: DossierMinimalOut
