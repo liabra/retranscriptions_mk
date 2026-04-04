@@ -155,7 +155,7 @@ def delete_dossier(
 ):
     """Suppression définitive — réservée admin/coordinatrice. Bloquée si facture ou paiements existants."""
     from app.models.facture import FactureClient
-    from app.models.paiement_presta import PaiementPrestataire
+    from app.models.paiement import PaiementPrestataire
     dossier = db.query(Dossier).filter(Dossier.id == dossier_id).first()
     if not dossier:
         raise HTTPException(status_code=404, detail="Dossier introuvable")
@@ -163,12 +163,24 @@ def delete_dossier(
         raise HTTPException(status_code=400, detail="Impossible de supprimer : une facture existe pour ce dossier")
     if db.query(PaiementPrestataire).filter(PaiementPrestataire.dossier_id == dossier_id).first():
         raise HTTPException(status_code=400, detail="Impossible de supprimer : des paiements prestataires existent")
+    from app.models.affectation import Affectation
+    from app.models.fichier import FichierDossier
+    from app.models.pricing.calcul import CalculTarifaire
+    from app.models.journal import JournalActivite
+
     log_action(
         db, TypeActionEnum.ARCHIVAGE,
         dossier_id=dossier_id,
         utilisateur_id=current_user.id,
         detail={"action": "suppression_dossier", "reference": dossier.reference},
     )
+    db.flush()
+
+    # Suppression des entités liées (ordre FK)
+    db.query(JournalActivite).filter(JournalActivite.dossier_id == dossier_id).delete()
+    db.query(FichierDossier).filter(FichierDossier.dossier_id == dossier_id).delete()
+    db.query(Affectation).filter(Affectation.dossier_id == dossier_id).delete()
+    db.query(CalculTarifaire).filter(CalculTarifaire.dossier_id == dossier_id).delete()
     db.delete(dossier)
     db.commit()
 
