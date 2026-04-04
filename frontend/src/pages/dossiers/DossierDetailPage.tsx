@@ -878,14 +878,12 @@ export function DossierDetailPage() {
                 {showFactureForm ? 'Annuler' : 'Générer facture'}
               </button>
             ) : facture ? (
-              <a
-                href={facturesService.getPdfUrl(facture.id)}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
                 className="btn btn-sm btn-secondary"
+                onClick={() => facturesService.openPdf(facture.id)}
               >
                 Voir la facture ↗
-              </a>
+              </button>
             ) : undefined
           }
         >

@@ -23,9 +23,11 @@ export const facturesService = {
       .then((r) => r.data)
   },
 
-  getPdfUrl(factureId: string): string {
-    // Retourne l'URL de la route PDF (à ouvrir dans un nouvel onglet)
-    const base = (apiClient.defaults.baseURL ?? '').replace(/\/$/, '')
-    return `${base}/factures/${factureId}/pdf`
+  async openPdf(factureId: string): Promise<void> {
+    const response = await apiClient.get(`/factures/${factureId}/pdf`, { responseType: 'blob' })
+    const blob = new Blob([response.data], { type: 'application/pdf' })
+    const url = URL.createObjectURL(blob)
+    window.open(url, '_blank')
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
   },
 }
