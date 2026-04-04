@@ -27,12 +27,12 @@ def _get_dossier_or_404(dossier_id: uuid.UUID, db) -> Dossier:
     return dossier
 
 
-def _find_prestataire_by_user(user: User, db) -> Prestataire | None:
+def _find_prestataire_by_user(user: User, db) -> "Prestataire | None":
     """Trouve le prestataire correspondant à l'utilisateur par email."""
     return db.query(Prestataire).filter(Prestataire.email == user.email).first()
 
 
-def _date_limite_from_audio(duree_minutes: int | None) -> datetime | None:
+def _date_limite_from_audio(duree_minutes: "int | None") -> "datetime | None":
     """Calcule la date limite de rendu selon la durée audio A2C."""
     if not duree_minutes:
         return None

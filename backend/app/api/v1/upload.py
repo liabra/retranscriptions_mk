@@ -43,10 +43,10 @@ def _upload_dir(dossier_id: uuid.UUID) -> Path:
 @router.post("/dossiers/{dossier_id}/upload", response_model=FichierOut, status_code=201)
 async def upload_fichier(
     dossier_id: uuid.UUID,
+    db: DbDep,
+    current_user: CurrentUser,
     file: UploadFile = File(...),
     commentaire: str = Form(default=""),
-    db: DbDep = Depends(),
-    current_user: CurrentUser = Depends(),
 ):
     """
     Dépôt de fichier par un prestataire sur son dossier affecté.
@@ -63,11 +63,13 @@ async def upload_fichier(
     # Les prestataires doivent être affectés à ce dossier
     is_presta = current_user.role in (RoleEnum.RETRANSCRIPTEUR, RoleEnum.CORRECTEUR)
     if is_presta:
+        from app.models.prestataire import Prestataire
+        presta = db.query(Prestataire).filter(Prestataire.email == current_user.email).first()
         affectation = db.query(Affectation).filter(
             Affectation.dossier_id == dossier_id,
-            Affectation.user_id == current_user.id,
+            Affectation.prestataire_id == presta.id if presta else None,
             Affectation.statut == StatutAffectationEnum.EN_COURS,
-        ).first()
+        ).first() if presta else None
         if not affectation:
             raise HTTPException(
                 status_code=403,

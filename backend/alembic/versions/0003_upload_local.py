@@ -8,7 +8,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = '0003_upload_local'
-down_revision = '0002_fichiers_dossier'
+down_revision = '0002'
 branch_labels = None
 depends_on = None
 
