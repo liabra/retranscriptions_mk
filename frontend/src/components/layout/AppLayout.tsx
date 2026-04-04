@@ -3,6 +3,7 @@ import { useAuth } from '@/features/auth/AuthContext'
 import { ROLE_LABELS } from '@/utils/statuts'
 import { HintsProvider, useHints } from '@/contexts/HintsContext'
 
+// Nav commune à tous (sauf prestataires qui ont la leur)
 const NAV_ITEMS = [
   { to: '/dashboard', icon: '◻', label: 'Dashboard' },
   { to: '/dossiers', icon: '📋', label: 'Dossiers' },
@@ -16,8 +17,10 @@ const ADMIN_NAV = [
   { to: '/grilles', icon: '⚙', label: 'Grilles tarifaires' },
 ]
 
+// Nav exclusive pour retranscripteur/correcteur — remplace NAV_ITEMS
 const PRESTATAIRE_NAV = [
   { to: '/mes-dossiers', icon: '✓', label: 'Mes missions' },
+  { to: '/aide', icon: '?', label: 'Aide' },
 ]
 
 export function AppLayout() {
@@ -51,7 +54,7 @@ function AppLayoutInner() {
 
         <nav className="sidebar-nav">
           <div className="nav-section-title">Navigation</div>
-          {NAV_ITEMS.map((item) => (
+          {(isPrestataire ? PRESTATAIRE_NAV : NAV_ITEMS).map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -61,22 +64,6 @@ function AppLayoutInner() {
               {item.label}
             </NavLink>
           ))}
-
-          {isPrestataire && (
-            <>
-              <div className="nav-section-title" style={{ marginTop: 8 }}>Mon espace</div>
-              {PRESTATAIRE_NAV.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
-                >
-                  <em className="nav-link-icon">{item.icon}</em>
-                  {item.label}
-                </NavLink>
-              ))}
-            </>
-          )}
 
           {isAdminOrCoord && (
             <>

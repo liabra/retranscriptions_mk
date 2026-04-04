@@ -16,12 +16,21 @@ from app.models.journal import TypeActionEnum
 router = APIRouter()
 
 
-def _check_access(user: User, dossier: Dossier) -> None:
+def _check_access(user: User, dossier: Dossier, db=None) -> None:
     """Cloisonnement : prestataires accèdent uniquement à leurs dossiers affectés."""
     if user.role in (RoleEnum.RETRANSCRIPTEUR, RoleEnum.CORRECTEUR):
-        assigned_ids = [str(a.dossier_id) for a in user.prestataire_profile.affectations
-                        ] if hasattr(user, "prestataire_profile") else []
-        if str(dossier.id) not in assigned_ids:
+        if db is None:
+            raise HTTPException(status_code=403, detail="Accès non autorisé à ce dossier")
+        from app.models.affectation import Affectation
+        from app.models.prestataire import Prestataire
+        presta = db.query(Prestataire).filter(Prestataire.email == user.email).first()
+        if not presta:
+            raise HTTPException(status_code=403, detail="Aucun profil prestataire associé à ce compte")
+        affecte = db.query(Affectation).filter(
+            Affectation.dossier_id == dossier.id,
+            Affectation.prestataire_id == presta.id,
+        ).first()
+        if not affecte:
             raise HTTPException(status_code=403, detail="Accès non autorisé à ce dossier")
 
 
@@ -115,7 +124,7 @@ def get_dossier(
     dossier = db.query(Dossier).filter(Dossier.id == dossier_id).first()
     if not dossier:
         raise HTTPException(status_code=404, detail="Dossier introuvable")
-    _check_access(current_user, dossier)
+    _check_access(current_user, dossier, db)
     return DossierOut.model_validate(dossier)
 
 

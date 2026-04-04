@@ -568,15 +568,15 @@ export function DossierDetailPage() {
       </div>
 
       {/* ── Infos + Workflow ────────────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isPrestataire ? '1fr' : '1fr 1fr', gap: 16 }}>
         <div className="card">
           <div className="card-header"><h2 className="card-title">Informations</h2></div>
           <div className="card-body" style={{ padding: '4px 20px' }}>
             <InfoRow label="Référence" value={<strong>{dossier.reference}</strong>} />
             <InfoRow label="Type d'instance" value={<span className="badge badge-gray">{dossier.type_instance}</span>} />
-            <InfoRow label="Client" value={client?.nom ?? '…'} />
+            {!isPrestataire && <InfoRow label="Client" value={client?.nom ?? '…'} />}
             <InfoRow label="Statut" value={<StatusBadge statut={dossier.statut} />} />
-            <InfoRow label="Confidentialité" value={dossier.niveau_confidentialite} />
+            {!isPrestataire && <InfoRow label="Confidentialité" value={dossier.niveau_confidentialite} />}
             <InfoRow label="Date de séance" value={formatDate(dossier.date_seance)} />
             <InfoRow label="Réception audio" value={formatDateTime(dossier.date_reception_audio)} />
             <InfoRow label="Date limite" value={
@@ -589,7 +589,7 @@ export function DossierDetailPage() {
           </div>
         </div>
 
-        <div className="card">
+        {!isPrestataire && <div className="card">
           <div className="card-header"><h2 className="card-title">Workflow</h2></div>
           <div className="card-body">
             <div style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 12 }}>
@@ -620,7 +620,7 @@ export function DossierDetailPage() {
               </div>
             )}
           </div>
-        </div>
+        </div>}
       </div>
 
       {/* ── Notes internes (admin/coord seulement) ─────────────────────── */}
