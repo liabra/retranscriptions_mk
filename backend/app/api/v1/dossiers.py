@@ -64,6 +64,9 @@ def list_dossiers(
 
     if statut:
         q = q.filter(Dossier.statut == statut)
+    elif current_user.role not in (RoleEnum.RETRANSCRIPTEUR, RoleEnum.CORRECTEUR):
+        # Par défaut, masquer les archives sauf filtre explicite
+        q = q.filter(Dossier.statut != StatutDossierEnum.ARCHIVE)
     if urgent_only:
         q = q.filter(Dossier.est_urgent == True)
     if client_id:
@@ -167,17 +170,11 @@ def delete_dossier(
     from app.models.fichier import FichierDossier
     from app.models.pricing.calcul import CalculTarifaire
     from app.models.journal import JournalActivite
-
-    log_action(
-        db, TypeActionEnum.ARCHIVAGE,
-        dossier_id=dossier_id,
-        utilisateur_id=current_user.id,
-        detail={"action": "suppression_dossier", "reference": dossier.reference},
-    )
-    db.flush()
+    from app.models.incident import IncidentQualite
 
     # Suppression des entités liées (ordre FK)
     db.query(JournalActivite).filter(JournalActivite.dossier_id == dossier_id).delete()
+    db.query(IncidentQualite).filter(IncidentQualite.dossier_id == dossier_id).delete()
     db.query(FichierDossier).filter(FichierDossier.dossier_id == dossier_id).delete()
     db.query(Affectation).filter(Affectation.dossier_id == dossier_id).delete()
     db.query(CalculTarifaire).filter(CalculTarifaire.dossier_id == dossier_id).delete()

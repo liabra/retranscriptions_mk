@@ -12,7 +12,7 @@ const STATUTS_FILTRABLES: StatutDossier[] = [
   'recu', 'en_qualification', 'estime', 'a_attribuer',
   'en_retranscription', 'a_corriger', 'en_correction',
   'en_mise_en_forme', 'calcul_en_cours', 'a_valider',
-  'envoye', 'facture', 'paye_entrant', 'bloque',
+  'envoye', 'facture', 'paye_entrant', 'prestataires_payes', 'bloque', 'archive',
 ]
 
 export function DossiersListPage() {

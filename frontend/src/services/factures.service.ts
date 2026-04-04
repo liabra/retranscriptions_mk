@@ -28,10 +28,22 @@ export const facturesService = {
   },
 
   async openPdf(factureId: string): Promise<void> {
-    const response = await apiClient.get(`/factures/${factureId}/pdf`, { responseType: 'blob' })
-    const blob = new Blob([response.data], { type: 'application/pdf' })
-    const url = URL.createObjectURL(blob)
-    window.open(url, '_blank')
-    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    // Tente d'abord le PDF, fallback HTML si WeasyPrint indisponible côté serveur
+    try {
+      const response = await apiClient.get(`/factures/${factureId}/pdf`, { responseType: 'blob' })
+      const contentType = response.headers['content-type'] ?? ''
+      const isPdf = contentType.includes('pdf')
+      const blob = new Blob([response.data], { type: isPdf ? 'application/pdf' : 'text/html' })
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank')
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch {
+      // Dernier recours : HTML
+      const response = await apiClient.get(`/factures/${factureId}/html`, { responseType: 'blob' })
+      const blob = new Blob([response.data], { type: 'text/html' })
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank')
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    }
   },
 }

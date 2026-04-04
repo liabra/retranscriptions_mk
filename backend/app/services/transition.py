@@ -39,7 +39,13 @@ TRANSITIONS_AUTORISEES: Dict[StatutDossierEnum, Set[StatutDossierEnum]] = {
         StatutDossierEnum.BLOQUE,
     },
     StatutDossierEnum.EN_MISE_EN_FORME: {
+        StatutDossierEnum.CALCUL_EN_COURS,
         StatutDossierEnum.A_VALIDER,
+        StatutDossierEnum.BLOQUE,
+    },
+    StatutDossierEnum.CALCUL_EN_COURS: {
+        StatutDossierEnum.A_VALIDER,
+        StatutDossierEnum.EN_MISE_EN_FORME,
         StatutDossierEnum.BLOQUE,
     },
     StatutDossierEnum.A_VALIDER: {
@@ -70,6 +76,7 @@ TRANSITIONS_AUTORISEES: Dict[StatutDossierEnum, Set[StatutDossierEnum]] = {
         StatutDossierEnum.A_CORRIGER,
         StatutDossierEnum.EN_CORRECTION,
         StatutDossierEnum.EN_MISE_EN_FORME,
+        StatutDossierEnum.CALCUL_EN_COURS,
         StatutDossierEnum.A_VALIDER,
     },
     StatutDossierEnum.INCOMPLET: {
