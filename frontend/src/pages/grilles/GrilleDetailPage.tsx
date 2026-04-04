@@ -105,6 +105,12 @@ export function GrilleDetailPage() {
     setGrille((prev) => prev ? { ...prev, active: false } : prev)
   }
 
+  async function handleReactivate() {
+    if (!id || !grille) return
+    await grillesService.update(id, { active: true })
+    setGrille((prev) => prev ? { ...prev, active: true } : prev)
+  }
+
   async function handleCreateRegle(e: React.FormEvent) {
     e.preventDefault()
     if (!id) return
@@ -162,13 +168,21 @@ export function GrilleDetailPage() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          {grille.active && (
+          {grille.active ? (
             <button
               className="btn btn-secondary btn-sm"
               style={{ color: 'var(--color-danger)', borderColor: 'var(--color-danger)' }}
               onClick={handleDeactivate}
             >
               Désactiver
+            </button>
+          ) : (
+            <button
+              className="btn btn-secondary btn-sm"
+              style={{ color: 'var(--color-success)', borderColor: 'var(--color-success)' }}
+              onClick={handleReactivate}
+            >
+              Réactiver
             </button>
           )}
           <button className="btn btn-secondary btn-sm" onClick={openEditForm}>

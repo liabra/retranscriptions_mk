@@ -80,6 +80,12 @@ export function GrillesPage() {
     setGrilles((prev) => prev.map((g) => (g.id === id ? { ...g, active: false } : g)))
   }
 
+  async function handleReactivate(id: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    await grillesService.update(id, { active: true })
+    setGrilles((prev) => prev.map((g) => (g.id === id ? { ...g, active: true } : g)))
+  }
+
   if (isLoading) return <PageLoader />
 
   return (
@@ -280,13 +286,21 @@ export function GrillesPage() {
                       )}
                     </td>
                     <td style={{ padding: '10px 12px' }}>
-                      {g.active && (
+                      {g.active ? (
                         <button
                           className="btn btn-ghost btn-sm"
                           style={{ color: 'var(--color-danger)', fontSize: 11 }}
                           onClick={(e) => handleDeactivate(g.id, e)}
                         >
                           Désactiver
+                        </button>
+                      ) : (
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          style={{ color: 'var(--color-success)', fontSize: 11 }}
+                          onClick={(e) => handleReactivate(g.id, e)}
+                        >
+                          Réactiver
                         </button>
                       )}
                     </td>

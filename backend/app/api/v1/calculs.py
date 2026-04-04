@@ -137,6 +137,10 @@ def calculer_dossier(
 
     if grilles_client:
         montant_client, lignes_client = engine._calcul_cote(grilles_client, criteres, "CLIENT")
+        # Fallback si les règles de la grille ne produisent rien (0€)
+        if montant_client == Decimal("0.00"):
+            montant_client = _forfait_a2c(criteres.nombre_pages)
+            lignes_client = []
     else:
         # Fallback : forfait A2C par tranche de pages (table officielle)
         montant_client = _forfait_a2c(criteres.nombre_pages)
