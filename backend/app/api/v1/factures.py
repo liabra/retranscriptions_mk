@@ -239,6 +239,27 @@ def get_facture_pdf(facture_id: uuid.UUID, db: DbDep, current_user: CurrentUser)
         return HTMLResponse(content=html, status_code=200)
 
 
+@router.delete("/factures/{facture_id}", status_code=204)
+def delete_facture(
+    facture_id: uuid.UUID,
+    db: DbDep,
+    admin: User = Depends(require_admin_or_coordinator),
+):
+    facture = db.query(FactureClient).filter(FactureClient.id == facture_id).first()
+    if not facture:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+    if facture.statut_paiement != StatutPaiementEnum.NON_PAYEE:
+        raise HTTPException(status_code=400, detail="Seules les factures non payées peuvent être supprimées")
+    log_action(
+        db, TypeActionEnum.PAIEMENT,
+        dossier_id=facture.dossier_id,
+        utilisateur_id=admin.id,
+        detail={"action": "suppression_facture", "numero_facture": facture.numero_facture},
+    )
+    db.delete(facture)
+    db.commit()
+
+
 @router.patch("/factures/{facture_id}/paiement", response_model=FactureOut)
 def update_facture_paiement(
     facture_id: uuid.UUID,

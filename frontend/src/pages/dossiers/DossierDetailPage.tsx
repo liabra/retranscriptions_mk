@@ -313,6 +313,18 @@ export function DossierDetailPage() {
     }
   }
 
+  async function handleAffectationStatut(affId: string, statut: string) {
+    const updated = await affectationsService.update(affId, { statut: statut as Affectation['statut'] })
+    setAffectations((prev) => prev.map((a) => (a.id === affId ? updated : a)))
+  }
+
+  async function handleDeleteFacture() {
+    if (!facture || !id) return
+    if (!confirm('Supprimer la facture ? Vous pourrez en générer une nouvelle après recalcul.')) return
+    await facturesService.deleteFacture(facture.id)
+    setFacture(null)
+  }
+
   async function handleAffectSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!id) return
@@ -710,7 +722,7 @@ export function DossierDetailPage() {
             <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                  {['Prestataire', 'Rôle', 'Statut', 'Attribué le', 'Date limite'].map((h) => (
+                  {['Prestataire', 'Rôle', 'Statut', 'Attribué le', 'Date limite', ''].map((h) => (
                     <th key={h} style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600, fontSize: 11, color: 'var(--color-text-muted)' }}>{h}</th>
                   ))}
                 </tr>
@@ -720,9 +732,28 @@ export function DossierDetailPage() {
                   <tr key={a.id} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
                     <td style={{ padding: '6px 8px' }}>{prestaName(a.prestataire_id)}</td>
                     <td style={{ padding: '6px 8px' }}>{ROLE_AFFECTATION_LABELS[a.type_role]}</td>
-                    <td style={{ padding: '6px 8px' }}><span className="badge badge-gray">{a.statut}</span></td>
+                    <td style={{ padding: '6px 8px' }}>
+                      <span className={`badge ${a.statut === 'livre' || a.statut === 'valide' ? 'badge-green' : a.statut === 'en_cours' ? 'badge-blue' : a.statut === 'rejete' ? 'badge-red' : 'badge-gray'}`}>
+                        {a.statut === 'en_attente' ? 'En attente' : a.statut === 'en_cours' ? 'En cours' : a.statut === 'livre' ? 'Livré' : a.statut === 'valide' ? 'Validé' : a.statut === 'rejete' ? 'Rejeté' : a.statut}
+                      </span>
+                    </td>
                     <td style={{ padding: '6px 8px' }}>{formatDate(a.date_attribution)}</td>
                     <td style={{ padding: '6px 8px' }}>{formatDate(a.date_limite_rendu)}</td>
+                    <td style={{ padding: '6px 8px' }}>
+                      {isAdminOrCoord && (
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          {a.statut === 'en_attente' && (
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={() => handleAffectationStatut(a.id, 'en_cours')}>→ En cours</button>
+                          )}
+                          {(a.statut === 'en_attente' || a.statut === 'en_cours') && (
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={() => handleAffectationStatut(a.id, 'livre')}>→ Livré</button>
+                          )}
+                          {a.statut === 'livre' && (
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={() => handleAffectationStatut(a.id, 'valide')}>→ Validé</button>
+                          )}
+                        </div>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -924,6 +955,15 @@ export function DossierDetailPage() {
                 )}
                 <div>Montant TTC : <strong style={{ fontSize: 15 }}>{parseFloat(facture.montant_ttc).toFixed(2)} €</strong></div>
               </div>
+              {isAdminOrCoord && facture.statut_paiement === 'non_payee' && (
+                <button
+                  className="btn btn-sm btn-ghost"
+                  style={{ fontSize: 11, color: 'var(--color-danger)' }}
+                  onClick={handleDeleteFacture}
+                >
+                  Supprimer la facture
+                </button>
+              )}
               {isAdminOrCoord && facture.statut_paiement !== 'soldee' && (
                 <div style={{ display: 'flex', gap: 8 }}>
                   {facture.statut_paiement === 'non_payee' && (

@@ -23,6 +23,10 @@ export const facturesService = {
       .then((r) => r.data)
   },
 
+  deleteFacture(factureId: string): Promise<void> {
+    return apiClient.delete(`/factures/${factureId}`).then(() => undefined)
+  },
+
   async openPdf(factureId: string): Promise<void> {
     const response = await apiClient.get(`/factures/${factureId}/pdf`, { responseType: 'blob' })
     const blob = new Blob([response.data], { type: 'application/pdf' })
