@@ -6,9 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse, Response
 
 from app.core.deps import DbDep, CurrentUser, require_admin_or_coordinator
+from app.models.affectation import Affectation, StatutAffectationEnum, RoleAffectationEnum
 from app.models.dossier import Dossier, StatutDossierEnum
 from app.models.client import Client
 from app.models.facture import FactureClient, StatutPaiementEnum
+from app.models.paiement import PaiementPrestataire, StatutPaiementPrestaEnum, RolePayeEnum
+from app.services import email as email_svc
 from app.models.pricing.calcul import CalculTarifaire
 from app.models.user import User
 from app.models.journal import TypeActionEnum
@@ -96,8 +99,63 @@ def generer_facture(
             "montant_ttc": str(montant_ttc),
         },
     )
+
+    # Auto-génération paiements prestataires
+    affectations = db.query(Affectation).filter(
+        Affectation.dossier_id == dossier_id,
+        Affectation.statut.in_([
+            StatutAffectationEnum.LIVRE,
+            StatutAffectationEnum.VALIDE,
+            StatutAffectationEnum.EN_COURS,
+        ]),
+    ).all()
+    if affectations and dossier.nombre_pages_final:
+        from decimal import Decimal as D
+        nb_pages = D(str(dossier.nombre_pages_final))
+        for aff in affectations:
+            deja = db.query(PaiementPrestataire).filter(
+                PaiementPrestataire.affectation_id == aff.id
+            ).first()
+            if deja:
+                continue
+            montant_brut = (
+                calcul.montant_retranscripteur
+                if aff.type_role == RoleAffectationEnum.RETRANSCRIPTEUR
+                else calcul.montant_correcteur
+            )
+            role = (
+                RolePayeEnum.RETRANSCRIPTEUR
+                if aff.type_role == RoleAffectationEnum.RETRANSCRIPTEUR
+                else RolePayeEnum.CORRECTEUR
+            )
+            db.add(PaiementPrestataire(
+                affectation_id=aff.id,
+                dossier_id=dossier_id,
+                prestataire_id=aff.prestataire_id,
+                role_paye=role,
+                nombre_pages=nb_pages,
+                detail_calcul={"calcul_id": str(calcul.id)},
+                montant_brut=montant_brut,
+                ajustement_manuel=D("0.00"),
+                montant_final=montant_brut,
+                statut=StatutPaiementPrestaEnum.A_PAYER,
+            ))
+
     db.commit()
     db.refresh(facture)
+
+    # Email au client
+    if payeur and getattr(payeur, "email_contact", None):
+        echeance_str = facture.date_echeance.strftime("%d/%m/%Y") if facture.date_echeance else "À réception"
+        email_svc.send_facture_client(
+            to=payeur.email_contact,
+            client_nom=payeur.nom,
+            dossier_ref=dossier.reference,
+            numero_facture=facture.numero_facture,
+            montant_ttc=f"{float(montant_ttc):.2f}",
+            date_echeance=echeance_str,
+        )
+
     return facture
 
 

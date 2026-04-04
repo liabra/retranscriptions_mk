@@ -1,14 +1,19 @@
 import uuid
+from datetime import datetime, timezone, timedelta
+from decimal import Decimal
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.core.config import settings
 from app.core.deps import DbDep, CurrentUser, require_admin_or_coordinator
 from app.models.affectation import Affectation, RoleAffectationEnum, StatutAffectationEnum
 from app.models.dossier import Dossier, StatutDossierEnum
 from app.models.prestataire import Prestataire
 from app.models.user import User, RoleEnum
 from app.schemas.affectation import AffectationCreate, AffectationUpdate, AffectationOut, AffectationWithDossierOut
+from app.services import email as email_svc
+from app.services.calcul_service import run_calcul
 from app.services.journal import log_action
 from app.models.journal import TypeActionEnum
 
@@ -25,6 +30,19 @@ def _get_dossier_or_404(dossier_id: uuid.UUID, db) -> Dossier:
 def _find_prestataire_by_user(user: User, db) -> Prestataire | None:
     """Trouve le prestataire correspondant à l'utilisateur par email."""
     return db.query(Prestataire).filter(Prestataire.email == user.email).first()
+
+
+def _date_limite_from_audio(duree_minutes: int | None) -> datetime | None:
+    """Calcule la date limite de rendu selon la durée audio A2C."""
+    if not duree_minutes:
+        return None
+    if duree_minutes <= 60:
+        jours = 7
+    elif duree_minutes <= 240:
+        jours = 18
+    else:
+        jours = 25
+    return datetime.now(timezone.utc) + timedelta(days=jours)
 
 
 def _auto_transition_dossier(dossier: Dossier, new_statut: StatutDossierEnum, db, user: User, reason: str):
@@ -95,11 +113,16 @@ def create_affectation(
     if existing_role:
         raise HTTPException(status_code=400, detail=f"Un {payload.type_role.value} est déjà affecté à ce dossier")
 
+    # Date limite auto depuis durée audio si non fournie
+    date_limite = payload.date_limite_rendu
+    if not date_limite:
+        date_limite = _date_limite_from_audio(dossier.duree_audio_minutes)
+
     affectation = Affectation(
         dossier_id=dossier_id,
         prestataire_id=payload.prestataire_id,
         type_role=payload.type_role,
-        date_limite_rendu=payload.date_limite_rendu,
+        date_limite_rendu=date_limite,
         commentaire=payload.commentaire,
         statut=StatutAffectationEnum.EN_COURS,  # Directement EN_COURS, pas EN_ATTENTE
     )
@@ -125,6 +148,17 @@ def create_affectation(
     )
     db.commit()
     db.refresh(affectation)
+
+    # Email de notification au prestataire
+    date_str = date_limite.strftime("%d/%m/%Y") if date_limite else "non définie"
+    email_svc.send_affectation_prestataire(
+        to=presta.email,
+        presta_nom=presta.nom,
+        dossier_ref=dossier.reference,
+        role=payload.type_role.value,
+        date_limite=date_str,
+    )
+
     return affectation
 
 
@@ -158,7 +192,7 @@ def update_affectation(
         if presta and presta.charge_actuelle > 0:
             presta.charge_actuelle -= 1
 
-    # Auto-transitions dossier selon événement affectation
+    # Auto-transitions dossier + emails + auto-calcul selon événement affectation
     if payload.statut and payload.statut != ancien_statut:
         dossier = db.query(Dossier).filter(Dossier.id == affectation.dossier_id).first()
         if dossier:
@@ -166,6 +200,22 @@ def update_affectation(
                     and payload.statut == StatutAffectationEnum.LIVRE
                     and dossier.statut == StatutDossierEnum.EN_RETRANSCRIPTION):
                 _auto_transition_dossier(dossier, StatutDossierEnum.A_CORRIGER, db, current_user, "retranscripteur a livré")
+                # Notifier le correcteur
+                correct_aff = db.query(Affectation).filter(
+                    Affectation.dossier_id == dossier.id,
+                    Affectation.type_role == RoleAffectationEnum.CORRECTEUR,
+                    Affectation.statut != StatutAffectationEnum.REJETE,
+                ).first()
+                if correct_aff:
+                    presta_correct = db.query(Prestataire).filter(
+                        Prestataire.id == correct_aff.prestataire_id
+                    ).first()
+                    if presta_correct:
+                        email_svc.send_retranscription_livree(
+                            to=presta_correct.email,
+                            correcteur_nom=presta_correct.nom,
+                            dossier_ref=dossier.reference,
+                        )
 
             elif (affectation.type_role == RoleAffectationEnum.CORRECTEUR
                     and payload.statut == StatutAffectationEnum.EN_COURS
@@ -176,6 +226,18 @@ def update_affectation(
                     and payload.statut == StatutAffectationEnum.LIVRE
                     and dossier.statut in (StatutDossierEnum.EN_CORRECTION, StatutDossierEnum.A_CORRIGER)):
                 _auto_transition_dossier(dossier, StatutDossierEnum.EN_MISE_EN_FORME, db, current_user, "correcteur a livré")
+                # Notifier l'admin
+                if settings.ADMIN_EMAIL:
+                    email_svc.send_correction_livree(
+                        to=settings.ADMIN_EMAIL,
+                        dossier_ref=dossier.reference,
+                    )
+                # Auto-calcul si nombre_pages_final connu
+                if dossier.nombre_pages_final:
+                    try:
+                        run_calcul(dossier, Decimal(str(dossier.nombre_pages_final)), current_user.id, db)
+                    except Exception:
+                        pass  # Ne pas bloquer la livraison si calcul échoue
 
     log_action(
         db, TypeActionEnum.AFFECTATION,

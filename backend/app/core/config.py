@@ -28,6 +28,14 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "./uploads"
     MAX_UPLOAD_SIZE_MB: int = 500
 
+    # Email SMTP — optionnel, les emails sont loggés si absent
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    EMAIL_FROM: str = ""    # "A2C Retranscriptions <contact@a2c.fr>"
+    ADMIN_EMAIL: str = ""   # Notifié quand un correcteur livre
+
     @property
     def allowed_origins_list(self) -> List[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]
