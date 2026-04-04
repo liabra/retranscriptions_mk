@@ -17,6 +17,38 @@ from app.services.journal import log_action
 router = APIRouter()
 
 
+def _forfait_a2c(nombre_pages: Decimal) -> Decimal:
+    """
+    Forfait client A2C par tranche de pages — table officielle.
+    Utilisé en fallback si aucune grille CLIENT active n'est configurée.
+    """
+    p = float(nombre_pages)
+    if p <= 0:
+        return Decimal("0.00")
+    if p <= 9:
+        return Decimal("50.00")
+    if p <= 20:
+        return Decimal("100.00")
+    if p <= 30:
+        return Decimal("150.00")
+    if p <= 40:
+        return Decimal("200.00")
+    if p <= 50:
+        return Decimal("250.00")
+    if p <= 60:
+        return Decimal("300.00")
+    if p <= 70:
+        return Decimal("350.00")
+    if p <= 80:
+        return Decimal("400.00")
+    if p <= 90:
+        return Decimal("450.00")
+    if p <= 100:
+        return Decimal("500.00")
+    # Au-delà de 100 pages : 5 €/page (taux moyen)
+    return (Decimal(str(p)) * Decimal("5.00")).quantize(Decimal("0.01"))
+
+
 def _get_dossier_or_404(dossier_id: uuid.UUID, db) -> Dossier:
     d = db.query(Dossier).filter(Dossier.id == dossier_id).first()
     if not d:
@@ -103,7 +135,12 @@ def calculer_dossier(
         if g_spe:
             grilles_client.append(g_spe)
 
-    montant_client, lignes_client = engine._calcul_cote(grilles_client, criteres, "CLIENT")
+    if grilles_client:
+        montant_client, lignes_client = engine._calcul_cote(grilles_client, criteres, "CLIENT")
+    else:
+        # Fallback : forfait A2C par tranche de pages (table officielle)
+        montant_client = _forfait_a2c(criteres.nombre_pages)
+        lignes_client = []
 
     # Côté RETRANSCRIPTEUR
     grille_retrans = engine._get_active_grille(TypeGrilleEnum.RETRANSCRIPTEUR, criteres.retranscripteur_id)
@@ -119,12 +156,6 @@ def calculer_dossier(
     grille_correcteur = engine._get_active_grille(TypeGrilleEnum.CORRECTEUR, criteres.correcteur_id)
     grilles_correct = [g for g in [grille_correcteur] if g]
     montant_correct, lignes_correct = engine._calcul_cote(grilles_correct, criteres, "CORRECTEUR")
-
-    if not grilles_client:
-        raise HTTPException(
-            status_code=422,
-            detail="Aucune grille tarifaire CLIENT active trouvée. Configurez d'abord une grille.",
-        )
 
     # Snapshot grilles
     grilles_snap = {}

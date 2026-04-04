@@ -28,5 +28,12 @@ else
     echo "WARNING: seed.py failed — server will start anyway" >&2
 fi
 
+echo "=== Seeding grilles tarifaires ==="
+if python seed_grilles.py; then
+    echo "Seed grilles OK"
+else
+    echo "WARNING: seed_grilles.py failed — server will start anyway" >&2
+fi
+
 echo "=== Starting server ==="
 exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"
