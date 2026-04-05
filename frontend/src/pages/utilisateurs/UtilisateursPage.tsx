@@ -13,6 +13,7 @@ const ALL_ROLES: RoleEnum[] = [
   'correcteur',
   'comptabilite',
   'lecture_seule',
+  'client',
 ]
 
 const ROLE_BADGE: Record<RoleEnum, string> = {
@@ -22,6 +23,7 @@ const ROLE_BADGE: Record<RoleEnum, string> = {
   correcteur: 'badge-orange',
   comptabilite: 'badge-green',
   lecture_seule: 'badge-gray',
+  client: 'badge-blue',
 }
 
 // ─── Modal création ───────────────────────────────────────────────────────────
