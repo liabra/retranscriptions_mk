@@ -36,6 +36,14 @@ class Settings(BaseSettings):
     EMAIL_FROM: str = ""    # "A2C Retranscriptions <contact@a2c.fr>"
     ADMIN_EMAIL: str = ""   # Notifié quand un correcteur livre
 
+    # OneDrive / Microsoft Graph — optionnel, fallback stockage local si absent
+    ONEDRIVE_TENANT_ID: str = ""
+    ONEDRIVE_CLIENT_ID: str = ""
+    ONEDRIVE_CLIENT_SECRET: str = ""
+    ONEDRIVE_DRIVE_ID: str = ""        # ID du Drive (ex: "b!abc123...")
+    ONEDRIVE_PRESTATAIRE_FOLDER: str = "Depot-Prestataires"  # dossier pour fichiers prestataires
+    ONEDRIVE_AUDIO_FOLDER: str = "Depot-Audio-Clients"       # dossier pour fichiers audio clients
+
     @property
     def allowed_origins_list(self) -> List[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]

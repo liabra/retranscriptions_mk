@@ -7,6 +7,7 @@ export type RoleEnum =
   | 'correcteur'
   | 'comptabilite'
   | 'lecture_seule'
+  | 'client'
 
 export interface User {
   id: string

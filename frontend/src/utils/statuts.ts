@@ -47,6 +47,7 @@ export const ROLE_LABELS: Record<RoleEnum, string> = {
   correcteur: 'Correcteur',
   comptabilite: 'Comptabilité',
   lecture_seule: 'Lecture seule',
+  client: 'Client',
 }
 
 export function isRetard(dateLimite: string | null): boolean {

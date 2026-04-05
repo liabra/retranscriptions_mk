@@ -4,21 +4,27 @@ import { useAuth } from '@/features/auth/AuthContext'
 import { getApiErrorMessage } from '@/services/api'
 import { Spinner } from '@/components/ui/Spinner'
 
+function homeForRole(role: string): string {
+  if (role === 'client') return '/mon-espace'
+  if (role === 'retranscripteur' || role === 'correcteur') return '/mes-dossiers'
+  return '/dashboard'
+}
+
 export function LoginPage() {
-  const { login, isAuthenticated, isLoading } = useAuth()
+  const { login, isAuthenticated, isLoading, user } = useAuth()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
 
-  if (isAuthenticated) return <Navigate to="/dashboard" replace />
+  if (isAuthenticated && user) return <Navigate to={homeForRole(user.role)} replace />
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError('')
     try {
-      await login(email, password)
-      navigate('/dashboard')
+      const loggedUser = await login(email, password)
+      navigate(homeForRole(loggedUser?.role ?? 'dashboard'))
     } catch (err) {
       setError(getApiErrorMessage(err))
     }

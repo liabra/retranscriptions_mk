@@ -6,7 +6,7 @@ interface AuthContextValue {
   user: User | null
   isLoading: boolean
   isAuthenticated: boolean
-  login: (email: string, password: string) => Promise<void>
+  login: (email: string, password: string) => Promise<User>
   logout: () => void
 }
 
@@ -27,12 +27,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
   }, [])
 
-  async function login(email: string, password: string) {
+  async function login(email: string, password: string): Promise<User> {
     setIsLoading(true)
     try {
       const data = await authService.login(email, password)
       authService.saveSession(data)
       setUser(data.user)
+      return data.user
     } finally {
       setIsLoading(false)
     }

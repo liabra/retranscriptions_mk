@@ -16,6 +16,7 @@ import { MissionsPage } from '@/pages/missions/MissionsPage'
 import { UtilisateursPage } from '@/pages/utilisateurs/UtilisateursPage'
 import { AidePage } from '@/pages/aide/AidePage'
 import { MesDossiersPage } from '@/pages/prestataires/MesDossiersPage'
+import { MonEspaceClientPage } from '@/pages/client/MonEspaceClientPage'
 
 export const router = createBrowserRouter([
   {
@@ -91,6 +92,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute allowedRoles={['retranscripteur', 'correcteur']}>
             <MesDossiersPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'mon-espace',
+        element: (
+          <ProtectedRoute allowedRoles={['client']}>
+            <MonEspaceClientPage />
           </ProtectedRoute>
         ),
       },

@@ -23,6 +23,11 @@ const PRESTATAIRE_NAV = [
   { to: '/aide', icon: '?', label: 'Aide' },
 ]
 
+// Nav exclusive pour les clients
+const CLIENT_NAV = [
+  { to: '/mon-espace', icon: '🎙', label: 'Mon espace' },
+]
+
 export function AppLayout() {
   return (
     <HintsProvider>
@@ -42,6 +47,7 @@ function AppLayoutInner() {
   }
 
   const isPrestataire = user?.role === 'retranscripteur' || user?.role === 'correcteur'
+  const isClient      = user?.role === 'client'
   const isAdminOrCoord = user?.role === 'administratrice' || user?.role === 'coordinatrice'
 
   return (
@@ -54,7 +60,7 @@ function AppLayoutInner() {
 
         <nav className="sidebar-nav">
           <div className="nav-section-title">Navigation</div>
-          {(isPrestataire ? PRESTATAIRE_NAV : NAV_ITEMS).map((item) => (
+          {(isPrestataire ? PRESTATAIRE_NAV : isClient ? CLIENT_NAV : NAV_ITEMS).map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

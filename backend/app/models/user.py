@@ -17,6 +17,7 @@ class RoleEnum(str, PyEnum):
     CORRECTEUR = "correcteur"
     COMPTABILITE = "comptabilite"
     LECTURE_SEULE = "lecture_seule"
+    CLIENT = "client"
 
 
 class User(Base):

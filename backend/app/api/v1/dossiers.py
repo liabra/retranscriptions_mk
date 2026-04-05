@@ -62,9 +62,21 @@ def list_dossiers(
         else:
             q = q.filter(False)  # aucun dossier si pas de profil presta
 
+    # Clients ne voient que leurs propres dossiers (via email_contact)
+    elif current_user.role == RoleEnum.CLIENT:
+        from app.models.client import Client
+        client_obj = db.query(Client).filter(
+            Client.email_contact == current_user.email,
+            Client.actif == True,
+        ).first()
+        if client_obj:
+            q = q.filter(Dossier.client_id == client_obj.id)
+        else:
+            q = q.filter(False)  # aucun dossier si pas de profil client
+
     if statut:
         q = q.filter(Dossier.statut == statut)
-    elif current_user.role not in (RoleEnum.RETRANSCRIPTEUR, RoleEnum.CORRECTEUR):
+    elif current_user.role not in (RoleEnum.RETRANSCRIPTEUR, RoleEnum.CORRECTEUR, RoleEnum.CLIENT):
         # Par défaut, masquer les archives sauf filtre explicite
         q = q.filter(Dossier.statut != StatutDossierEnum.ARCHIVE)
     if urgent_only:

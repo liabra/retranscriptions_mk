@@ -93,6 +93,72 @@ def send_correction_livree(to: str, dossier_ref: str) -> None:
     _async(to, f"[{APP_NAME}] Dossier prêt à envoyer — {dossier_ref}", body)
 
 
+def send_depot_audio_client(
+    to: str,
+    client_nom: str,
+    client_email: str,
+    dossier_ref: str,
+    nom_fichier: str,
+    taille_ko: float,
+    commentaire: str,
+) -> None:
+    """Notification admin : un client a déposé un fichier audio."""
+    taille_str = f"{taille_ko:.0f} Ko" if taille_ko < 1024 else f"{taille_ko / 1024:.1f} Mo"
+    comment_row = (
+        f"<tr><td style='color:#666;padding:4px 0'>Message</td><td><em>{commentaire}</em></td></tr>"
+        if commentaire else ""
+    )
+    body = _wrap(f"""
+      <h2 style="margin:0 0 16px">🎙 Nouveau fichier audio reçu — {dossier_ref}</h2>
+      <p>Un client vient de déposer un fichier audio.</p>
+      <table style="width:100%;font-size:14px;margin:16px 0">
+        <tr><td style="color:#666;padding:4px 0">Client</td><td><strong>{client_nom}</strong> ({client_email})</td></tr>
+        <tr><td style="color:#666;padding:4px 0">Dossier</td><td><strong>{dossier_ref}</strong></td></tr>
+        <tr><td style="color:#666;padding:4px 0">Fichier</td><td><code>{nom_fichier}</code></td></tr>
+        <tr><td style="color:#666;padding:4px 0">Taille</td><td>{taille_str}</td></tr>
+        {comment_row}
+      </table>
+      <p>Connectez-vous au dashboard pour consulter le dépôt et lancer la retranscription.</p>
+    """)
+    _async(to, f"[A2C] Audio reçu — {dossier_ref}", body)
+
+
+def send_depot_prestataire(
+    to: str,
+    presta_nom: str,
+    presta_email: str,
+    dossier_ref: str,
+    nom_fichier: str,
+    type_doc: str,
+    version: str,
+    commentaire: str,
+) -> None:
+    """Notification admin : un prestataire a déposé un fichier de travail."""
+    label_map = {
+        "retranscription_v1":       "Retranscription (v1)",
+        "retranscription_corrigee": "Retranscription corrigée",
+        "autre": "Document divers",
+    }
+    label = label_map.get(type_doc, type_doc)
+    comment_row = (
+        f"<tr><td style='color:#666;padding:4px 0'>Commentaire</td><td><em>{commentaire}</em></td></tr>"
+        if commentaire else ""
+    )
+    body = _wrap(f"""
+      <h2 style="margin:0 0 16px">📎 Nouveau dépôt — {dossier_ref}</h2>
+      <p>Un prestataire vient de déposer un fichier sur le dossier <strong>{dossier_ref}</strong>.</p>
+      <table style="width:100%;font-size:14px;margin:16px 0">
+        <tr><td style="color:#666;padding:4px 0">Prestataire</td><td><strong>{presta_nom}</strong> ({presta_email})</td></tr>
+        <tr><td style="color:#666;padding:4px 0">Type</td><td>{label}</td></tr>
+        <tr><td style="color:#666;padding:4px 0">Fichier</td><td><code>{nom_fichier}</code></td></tr>
+        <tr><td style="color:#666;padding:4px 0">Version</td><td>{version}</td></tr>
+        {comment_row}
+      </table>
+      <p>Connectez-vous au dashboard pour consulter et valider le dépôt.</p>
+    """)
+    _async(to, f"[A2C] Dépôt reçu — {dossier_ref}", body)
+
+
 def send_facture_client(to: str, client_nom: str, dossier_ref: str,
                          numero_facture: str, montant_ttc: str, date_echeance: str) -> None:
     body = _wrap(f"""

@@ -1,44 +1,74 @@
 """
-Endpoint d'upload de fichiers pour les prestataires (retranscripteurs / correcteurs).
-À ajouter dans : backend/app/api/v1/upload.py
+Endpoints d'upload de fichiers.
+
+- Prestataires (retranscripteur / correcteur) : dépôt Word/PDF/ODT sur leur dossier affecté
+- Clients (role CLIENT) : dépôt audio (MP3, WAV, M4A, MP4) sur leurs dossiers
+
+OneDrive (Microsoft Graph) est utilisé si ONEDRIVE_* est configuré ; sinon stockage local.
 """
 import uuid
-import shutil
 from pathlib import Path
-from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 
 from app.core.config import settings
 from app.core.deps import DbDep, CurrentUser
 from app.models.affectation import Affectation, StatutAffectationEnum
+from app.models.client import Client
 from app.models.dossier import Dossier
 from app.models.fichier import FichierDossier, TypeDocumentEnum, StatutFichierEnum
-from app.models.user import User, RoleEnum
+from app.models.prestataire import Prestataire
+from app.models.user import RoleEnum
 from app.models.journal import TypeActionEnum
 from app.schemas.fichier import FichierOut
-from app.services.journal import log_action
 from app.services import email as email_svc
+from app.services import onedrive as onedrive_svc
+from app.services.journal import log_action
 
 router = APIRouter()
 
-# Types acceptés
-ALLOWED_EXTENSIONS = {".doc", ".docx", ".pdf", ".odt", ".txt", ".mp3", ".wav", ".m4a", ".mp4"}
+# ── Constantes ────────────────────────────────────────────────────────────────
+
+PRESTA_EXTENSIONS = {".doc", ".docx", ".pdf", ".odt", ".txt"}
+AUDIO_EXTENSIONS  = {".mp3", ".wav", ".m4a", ".mp4"}
+ALLOWED_EXTENSIONS = PRESTA_EXTENSIONS | AUDIO_EXTENSIONS
+
 MAX_BYTES = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
-# Map rôle prestataire → type de document déposé
 _ROLE_TO_TYPE = {
     RoleEnum.RETRANSCRIPTEUR: TypeDocumentEnum.RETRANSCRIPTION_V1,
     RoleEnum.CORRECTEUR:      TypeDocumentEnum.RETRANSCRIPTION_CORRIGEE,
+    RoleEnum.CLIENT:          TypeDocumentEnum.AUDIO_BRUT,
 }
 
 
-def _upload_dir(dossier_id: uuid.UUID) -> Path:
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _local_upload_dir(dossier_id: uuid.UUID) -> Path:
     path = Path(settings.UPLOAD_DIR) / str(dossier_id)
     path.mkdir(parents=True, exist_ok=True)
     return path
 
+
+def _save_file(content: bytes, filename: str, dossier_id: uuid.UUID,
+               onedrive_folder: "str | None") -> str:
+    """
+    Sauvegarde le fichier : OneDrive si configuré, sinon local.
+    Retourne la référence (URL OneDrive ou chemin local absolu).
+    """
+    if onedrive_folder:
+        url = onedrive_svc.upload_file(content, filename, onedrive_folder)
+        if url:
+            return url
+        # Fallback silencieux vers local si OneDrive échoue
+
+    dest = _local_upload_dir(dossier_id) / filename
+    dest.write_bytes(content)
+    return str(dest)
+
+
+# ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/dossiers/{dossier_id}/upload", response_model=FichierOut, status_code=201)
 async def upload_fichier(
@@ -49,42 +79,64 @@ async def upload_fichier(
     commentaire: str = Form(default=""),
 ):
     """
-    Dépôt de fichier par un prestataire sur son dossier affecté.
-    - Retranscripteur  → type retranscription_v1
-    - Correcteur       → type retranscription_corrigee
-    Les rôles admin / coordinatrice peuvent uploader n'importe quel type.
-    """
+    Dépôt de fichier sur un dossier.
 
-    # ── Vérifications ──────────────────────────────────────────────────────
+    - Retranscripteur  → retranscription_v1 (Word/PDF uniquement)
+    - Correcteur       → retranscription_corrigee (Word/PDF uniquement)
+    - Client           → audio_brut (MP3/WAV/M4A/MP4 uniquement)
+    - Admin/coordinatrice → tout type accepté
+    """
     dossier = db.query(Dossier).filter(Dossier.id == dossier_id).first()
     if not dossier:
         raise HTTPException(status_code=404, detail="Dossier introuvable")
 
-    # Les prestataires doivent être affectés à ce dossier
-    is_presta = current_user.role in (RoleEnum.RETRANSCRIPTEUR, RoleEnum.CORRECTEUR)
+    is_presta  = current_user.role in (RoleEnum.RETRANSCRIPTEUR, RoleEnum.CORRECTEUR)
+    is_client  = current_user.role == RoleEnum.CLIENT
+    is_admin   = current_user.role in (RoleEnum.ADMINISTRATRICE, RoleEnum.COORDINATRICE)
+
+    suffix = Path(file.filename or "").suffix.lower()
+
+    # ── Vérification accès & extensions autorisées ────────────────────────────
+
     if is_presta:
-        from app.models.prestataire import Prestataire
         presta = db.query(Prestataire).filter(Prestataire.email == current_user.email).first()
-        affectation = db.query(Affectation).filter(
-            Affectation.dossier_id == dossier_id,
-            Affectation.prestataire_id == presta.id if presta else None,
-            Affectation.statut == StatutAffectationEnum.EN_COURS,
-        ).first() if presta else None
+        affectation = (
+            db.query(Affectation).filter(
+                Affectation.dossier_id == dossier_id,
+                Affectation.prestataire_id == presta.id,
+                Affectation.statut == StatutAffectationEnum.EN_COURS,
+            ).first()
+            if presta else None
+        )
         if not affectation:
+            raise HTTPException(status_code=403, detail="Vous n'avez pas de mission active sur ce dossier")
+        if suffix not in PRESTA_EXTENSIONS:
             raise HTTPException(
-                status_code=403,
-                detail="Vous n'avez pas de mission active sur ce dossier",
+                status_code=400,
+                detail=f"Format non autorisé. Formats acceptés : {', '.join(sorted(PRESTA_EXTENSIONS))}",
             )
 
-    # Extension autorisée
-    suffix = Path(file.filename or "").suffix.lower()
-    if suffix not in ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Format non autorisé. Formats acceptés : {', '.join(sorted(ALLOWED_EXTENSIONS))}",
-        )
+    elif is_client:
+        client = db.query(Client).filter(Client.email_contact == current_user.email).first()
+        if not client or dossier.client_id != client.id:
+            raise HTTPException(status_code=403, detail="Ce dossier ne vous appartient pas")
+        if suffix not in AUDIO_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Format audio uniquement. Formats acceptés : {', '.join(sorted(AUDIO_EXTENSIONS))}",
+            )
 
-    # Taille maximale
+    elif not is_admin:
+        raise HTTPException(status_code=403, detail="Accès non autorisé")
+
+    else:  # admin/coord → toutes extensions
+        if suffix not in ALLOWED_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Format non autorisé. Formats acceptés : {', '.join(sorted(ALLOWED_EXTENSIONS))}",
+            )
+
+    # ── Lecture + vérification taille ─────────────────────────────────────────
     content = await file.read()
     if len(content) > MAX_BYTES:
         raise HTTPException(
@@ -92,20 +144,23 @@ async def upload_fichier(
             detail=f"Fichier trop volumineux (max {settings.MAX_UPLOAD_SIZE_MB} Mo)",
         )
 
-    # ── Sauvegarde physique ────────────────────────────────────────────────
+    # ── Détermination type document + dossier OneDrive ────────────────────────
+    type_doc = _ROLE_TO_TYPE.get(current_user.role, TypeDocumentEnum.AUTRE)
+
+    onedrive_folder: "str | None" = None
+    if is_presta:
+        onedrive_folder = f"{settings.ONEDRIVE_PRESTATAIRE_FOLDER}/{dossier_id}"
+    elif is_client:
+        onedrive_folder = f"{settings.ONEDRIVE_AUDIO_FOLDER}/{dossier_id}"
+    elif is_admin and settings.ONEDRIVE_DRIVE_ID:
+        onedrive_folder = f"Admin/{dossier_id}"
+
+    # ── Sauvegarde physique ────────────────────────────────────────────────────
     file_id   = uuid.uuid4()
     safe_name = f"{file_id}{suffix}"
-    dest      = _upload_dir(dossier_id) / safe_name
-    dest.write_bytes(content)
+    url_ref   = _save_file(content, safe_name, dossier_id, onedrive_folder)
 
-    # ── Enregistrement en base ─────────────────────────────────────────────
-    type_doc = (
-        _ROLE_TO_TYPE.get(current_user.role, TypeDocumentEnum.AUTRE)
-        if is_presta
-        else TypeDocumentEnum.AUTRE
-    )
-
-    # Version incrémentale pour ce type de document
+    # ── Enregistrement en base ─────────────────────────────────────────────────
     existing_count = db.query(FichierDossier).filter(
         FichierDossier.dossier_id == dossier_id,
         FichierDossier.type_document == type_doc,
@@ -118,7 +173,7 @@ async def upload_fichier(
         uploaded_by_id=current_user.id,
         type_document=type_doc,
         nom_fichier=file.filename or safe_name,
-        url_onedrive=str(dest),   # stockage local ; peut être remplacé par une URL cloud
+        url_onedrive=url_ref,
         version=version,
         statut=StatutFichierEnum.DISPONIBLE,
         commentaire=commentaire or None,
@@ -137,23 +192,36 @@ async def upload_fichier(
             "type": type_doc.value,
             "version": version,
             "taille_ko": round(len(content) / 1024, 1),
+            "stockage": "onedrive" if url_ref.startswith("http") else "local",
         },
     )
     db.commit()
     db.refresh(fichier)
 
-    # ── Notification email à l'administratrice ─────────────────────────────
+    # ── Notifications email ────────────────────────────────────────────────────
     if settings.ADMIN_EMAIL:
-        _notify_depot(
-            to=settings.ADMIN_EMAIL,
-            presta_nom=current_user.nom,
-            presta_email=current_user.email,
-            dossier_ref=dossier.reference,
-            nom_fichier=file.filename or safe_name,
-            type_doc=type_doc.value,
-            version=version,
-            commentaire=commentaire,
-        )
+        if is_client:
+            client_obj = db.query(Client).filter(Client.email_contact == current_user.email).first()
+            email_svc.send_depot_audio_client(
+                to=settings.ADMIN_EMAIL,
+                client_nom=current_user.nom,
+                client_email=current_user.email,
+                dossier_ref=dossier.reference,
+                nom_fichier=file.filename or safe_name,
+                taille_ko=round(len(content) / 1024, 1),
+                commentaire=commentaire,
+            )
+        else:
+            email_svc.send_depot_prestataire(
+                to=settings.ADMIN_EMAIL,
+                presta_nom=current_user.nom,
+                presta_email=current_user.email,
+                dossier_ref=dossier.reference,
+                nom_fichier=file.filename or safe_name,
+                type_doc=type_doc.value,
+                version=version,
+                commentaire=commentaire,
+            )
 
     return fichier
 
@@ -169,11 +237,23 @@ def download_fichier(
     if not fichier:
         raise HTTPException(status_code=404, detail="Fichier introuvable")
 
-    # Prestataires : uniquement leurs propres fichiers ou les fichiers audio de leur dossier
     is_presta = current_user.role in (RoleEnum.RETRANSCRIPTEUR, RoleEnum.CORRECTEUR)
+    is_client = current_user.role == RoleEnum.CLIENT
+
+    # Prestataires : leurs propres fichiers ou fichiers audio de leur dossier
     if is_presta:
         if fichier.uploaded_by_id != current_user.id and fichier.type_document != TypeDocumentEnum.AUDIO_BRUT:
             raise HTTPException(status_code=403, detail="Accès non autorisé")
+
+    # Clients : uniquement leurs propres fichiers
+    elif is_client:
+        if fichier.uploaded_by_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Accès non autorisé")
+
+    # Si le fichier est sur OneDrive (URL http), rediriger
+    if fichier.url_onedrive and fichier.url_onedrive.startswith("http"):
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=fichier.url_onedrive)
 
     path = Path(fichier.url_onedrive)
     if not path.exists():
@@ -186,39 +266,3 @@ def download_fichier(
     )
 
 
-# ── Template email interne ─────────────────────────────────────────────────
-
-def _notify_depot(
-    to: str,
-    presta_nom: str,
-    presta_email: str,
-    dossier_ref: str,
-    nom_fichier: str,
-    type_doc: str,
-    version: str,
-    commentaire: str,
-) -> None:
-    from app.services.email import _async, _wrap
-    label_map = {
-        "retranscription_v1":       "Retranscription (v1)",
-        "retranscription_corrigee": "Retranscription corrigée",
-        "autre": "Document divers",
-    }
-    label = label_map.get(type_doc, type_doc)
-    comment_row = (
-        f"<tr><td style='color:#666;padding:4px 0'>Commentaire</td><td><em>{commentaire}</em></td></tr>"
-        if commentaire else ""
-    )
-    body = _wrap(f"""
-      <h2 style="margin:0 0 16px">📎 Nouveau dépôt — {dossier_ref}</h2>
-      <p>Un prestataire vient de déposer un fichier sur le dossier <strong>{dossier_ref}</strong>.</p>
-      <table style="width:100%;font-size:14px;margin:16px 0">
-        <tr><td style="color:#666;padding:4px 0">Prestataire</td><td><strong>{presta_nom}</strong> ({presta_email})</td></tr>
-        <tr><td style="color:#666;padding:4px 0">Type</td><td>{label}</td></tr>
-        <tr><td style="color:#666;padding:4px 0">Fichier</td><td><code>{nom_fichier}</code></td></tr>
-        <tr><td style="color:#666;padding:4px 0">Version</td><td>{version}</td></tr>
-        {comment_row}
-      </table>
-      <p>Connectez-vous au dashboard pour consulter et valider le dépôt.</p>
-    """)
-    _async(to, f"[A2C] Dépôt reçu — {dossier_ref}", body)

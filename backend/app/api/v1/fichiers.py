@@ -33,7 +33,7 @@ def list_fichiers(
     db: DbDep,
     current_user: CurrentUser,
 ):
-    _get_dossier_or_404(dossier_id, db)
+    dossier = _get_dossier_or_404(dossier_id, db)
     q = db.query(FichierDossier).filter(
         FichierDossier.dossier_id == dossier_id,
         FichierDossier.statut != StatutFichierEnum.OBSOLETE,
@@ -41,6 +41,13 @@ def list_fichiers(
     # Prestataires : uniquement les fichiers utiles à leur mission
     if current_user.role in (RoleEnum.RETRANSCRIPTEUR, RoleEnum.CORRECTEUR):
         q = q.filter(FichierDossier.type_document.in_(_TYPES_PRESTATAIRE))
+    # Clients : uniquement leurs propres dépôts audio (après vérification d'accès)
+    elif current_user.role == RoleEnum.CLIENT:
+        from app.models.client import Client
+        client = db.query(Client).filter(Client.email_contact == current_user.email).first()
+        if not client or dossier.client_id != client.id:
+            raise HTTPException(status_code=403, detail="Ce dossier ne vous appartient pas")
+        q = q.filter(FichierDossier.uploaded_by_id == current_user.id)
     return q.order_by(FichierDossier.created_at.desc()).all()
 
 
