@@ -15,6 +15,12 @@ from app.services.pricing.engine import CriteresDossier, PricingEngine
 
 
 def _forfait_a2c(nombre_pages: Decimal) -> Decimal:
+    """
+    Forfait client standard A2C (convention de facturation).
+    Identique au tarif retranscripteur France (convention collaboration France signée).
+    Utilisé comme fallback si aucune grille client n'est configurée,
+    et comme seuil d'auto-validation du calcul.
+    """
     p = float(nombre_pages)
     if p <= 0:   return Decimal("0.00")
     if p <= 9:   return Decimal("50.00")
