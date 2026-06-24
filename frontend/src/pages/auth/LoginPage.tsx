@@ -33,8 +33,8 @@ export function LoginPage() {
   return (
     <div className="login-page">
       <div className="login-card">
-        <h1 className="login-title">Retranscriptions</h1>
-        <p className="login-subtitle">CE · CMAS · CSSCT — Accès réservé</p>
+        <h1 className="login-title">A2C</h1>
+        <p className="login-subtitle">Espace de gestion — Accès réservé</p>
 
         {error && <div className="alert alert-error">{error}</div>}
 

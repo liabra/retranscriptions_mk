@@ -54,19 +54,19 @@ export function DashboardPage() {
       </div>
 
       <div className="stat-grid">
-        <div className="stat-card">
+        <div className="stat-card stat-clickable" onClick={() => navigate('/dossiers')}>
           <div className="stat-value">{stats.enCours}</div>
           <div className="stat-label">Dossiers en cours</div>
         </div>
-        <div className={`stat-card${stats.urgents > 0 ? ' stat-urgent' : ''}`}>
+        <div className={`stat-card stat-clickable${stats.urgents > 0 ? ' stat-urgent' : ''}`} onClick={() => navigate('/dossiers?urgent=1')}>
           <div className="stat-value">{stats.urgents}</div>
           <div className="stat-label">Urgents</div>
         </div>
-        <div className={`stat-card${stats.enRetard > 0 ? ' stat-retard' : ''}`}>
+        <div className={`stat-card stat-clickable${stats.enRetard > 0 ? ' stat-retard' : ''}`} onClick={() => navigate('/dossiers')}>
           <div className="stat-value">{stats.enRetard}</div>
           <div className="stat-label">En retard</div>
         </div>
-        <div className="stat-card">
+        <div className="stat-card stat-clickable" onClick={() => navigate('/dossiers?statut=a_valider')}>
           <div className="stat-value">{stats.aValider}</div>
           <div className="stat-label">À valider</div>
         </div>
@@ -82,8 +82,12 @@ export function DashboardPage() {
 
         {recents.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-state-icon">📋</div>
-            <div className="empty-state-text">Aucun dossier en cours</div>
+            <div className="empty-state-icon" aria-hidden="true">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 11l3 3L22 4 M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
+              </svg>
+            </div>
+            <div className="empty-state-text">Tout est à jour — aucun dossier prioritaire en cours.</div>
           </div>
         ) : (
           <div className="table-wrapper">

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { dossiersService } from '@/services/dossiers.service'
 import { clientsService } from '@/services/clients.service'
 import type { DossierListItem, Client, StatutDossier } from '@/types'
@@ -8,11 +8,12 @@ import { PageLoader } from '@/components/ui/Spinner'
 import { formatDate, isRetard, STATUT_LABELS } from '@/utils/statuts'
 import { useAuth } from '@/features/auth/AuthContext'
 
-const STATUTS_FILTRABLES: StatutDossier[] = [
-  'recu', 'en_qualification', 'estime', 'a_attribuer',
-  'en_retranscription', 'a_corriger', 'en_correction',
-  'en_mise_en_forme', 'calcul_en_cours', 'a_valider',
-  'envoye', 'facture', 'paye_entrant', 'prestataires_payes', 'bloque', 'archive',
+const GROUPES_STATUTS: { label: string; statuts: StatutDossier[] }[] = [
+  { label: 'Réception',   statuts: ['recu', 'incomplet', 'en_qualification', 'estime'] },
+  { label: 'Production',  statuts: ['a_attribuer', 'en_retranscription', 'a_corriger', 'en_correction', 'en_mise_en_forme'] },
+  { label: 'Validation',  statuts: ['calcul_en_cours', 'a_valider'] },
+  { label: 'Facturation', statuts: ['envoye', 'facture', 'paye_entrant', 'prestataires_payes'] },
+  { label: 'Clôture',     statuts: ['bloque', 'archive'] },
 ]
 
 export function DossiersListPage() {
@@ -22,8 +23,9 @@ export function DossiersListPage() {
   const [clients, setClients] = useState<Client[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
-  const [filterStatut, setFilterStatut] = useState<StatutDossier | ''>('')
-  const [filterUrgent, setFilterUrgent] = useState(false)
+  const [searchParams] = useSearchParams()
+  const [filterStatut, setFilterStatut] = useState<StatutDossier | ''>((searchParams.get('statut') as StatutDossier | null) ?? '')
+  const [filterUrgent, setFilterUrgent] = useState(searchParams.get('urgent') === '1')
   const [filterClient, setFilterClient] = useState('')
 
   const canCreate = user?.role === 'administratrice' || user?.role === 'coordinatrice'
@@ -65,8 +67,12 @@ export function DossiersListPage() {
           onChange={(e) => setFilterStatut(e.target.value as StatutDossier | '')}
         >
           <option value="">Tous les statuts</option>
-          {STATUTS_FILTRABLES.map((s) => (
-            <option key={s} value={s}>{STATUT_LABELS[s]}</option>
+          {GROUPES_STATUTS.map((g) => (
+            <optgroup key={g.label} label={g.label}>
+              {g.statuts.map((s) => (
+                <option key={s} value={s}>{STATUT_LABELS[s]}</option>
+              ))}
+            </optgroup>
           ))}
         </select>
 
@@ -94,8 +100,17 @@ export function DossiersListPage() {
       <div className="card">
         {dossiers.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-state-icon">📋</div>
-            <div className="empty-state-text">Aucun dossier trouvé</div>
+            <div className="empty-state-icon" aria-hidden="true">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+              </svg>
+            </div>
+            <div className="empty-state-text">Aucun dossier ne correspond à ces critères.</div>
+            {canCreate && (
+              <button className="btn btn-primary btn-sm" style={{ marginTop: 14 }} onClick={() => navigate('/dossiers/nouveau')}>
+                + Nouveau dossier
+              </button>
+            )}
           </div>
         ) : (
           <div className="table-wrapper">
