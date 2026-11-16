@@ -94,6 +94,20 @@ class Dossier(Base):
     # Snapshot immuable à l'archivage
     archive_snapshot: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
+    # Refonte (migration 0005) — trois suivis indépendants
+    # `statut` (historique) est conservé et maintenu en cohérence par services/workflow.py
+    statut_production: Mapped[str] = mapped_column(String(30), nullable=False, default="a_qualifier", index=True)
+    statut_facturation: Mapped[str] = mapped_column(String(30), nullable=False, default="non_applicable", index=True)
+    statut_avant_blocage: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    motif_blocage: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    supprime_le: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    valide_le: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Échéance client : « calculee » (réception + délai paramétré) ou « manuelle » (migration 0007)
+    echeance_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="manuelle")
+    echeance_detail: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    # Figée à la première attribution : plus aucun recalcul automatique ensuite
+    echeance_figee_le: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: __import__("datetime").datetime.now(__import__("datetime").timezone.utc),
@@ -121,6 +135,8 @@ class Dossier(Base):
         overlaps="calcul_tarifaire",
     )
     fichiers = relationship("FichierDossier", back_populates="dossier", lazy="dynamic")
+    audios = relationship("AudioSource", back_populates="dossier", lazy="dynamic")
+    livraisons = relationship("Livraison", back_populates="dossier", lazy="dynamic")
 
     def __repr__(self) -> str:
         return f"<Dossier {self.reference} [{self.statut.value}]>"

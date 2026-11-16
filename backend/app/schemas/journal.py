@@ -10,6 +10,7 @@ class JournalEntryOut(BaseModel):
     timestamp: datetime
     dossier_id: Optional[uuid.UUID] = None
     utilisateur_id: Optional[uuid.UUID] = None
+    utilisateur_nom: Optional[str] = None
     type_action: str
     detail: Optional[Any] = None
     ip_source: Optional[str] = None

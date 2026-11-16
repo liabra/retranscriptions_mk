@@ -3,7 +3,7 @@ import uuid
 from enum import Enum as PyEnum
 from datetime import datetime, timezone
 
-from sqlalchemy import String, DateTime, Enum, ForeignKey, Text
+from sqlalchemy import String, DateTime, Enum, ForeignKey, Text, event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 
@@ -58,5 +58,20 @@ class JournalActivite(Base):
     # Le journal est immuable — pas de update/delete
     __mapper_args__ = {"eager_defaults": False}
 
+    @property
+    def utilisateur_nom(self) -> Optional[str]:
+        return self.utilisateur.nom if self.utilisateur else None
+
     def __repr__(self) -> str:
         return f"<Journal {self.type_action.value} @ {self.timestamp}>"
+
+
+# fix: journal immuable — toute modification ou suppression via l'ORM est refusée
+@event.listens_for(JournalActivite, "before_update")
+def _journal_no_update(mapper, connection, target):
+    raise RuntimeError("Le journal d'activité est immuable")
+
+
+@event.listens_for(JournalActivite, "before_delete")
+def _journal_no_delete(mapper, connection, target):
+    raise RuntimeError("Le journal d'activité est immuable")

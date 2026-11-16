@@ -13,7 +13,8 @@ config = context.config
 # Override sqlalchemy.url with env var
 database_url = os.environ.get("DATABASE_URL")
 if database_url:
-    config.set_main_option("sqlalchemy.url", database_url)
+    # fix : échapper « % » (mot de passe encodé dans l'URL) pour configparser
+    config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

@@ -94,6 +94,27 @@ def _regles_retranscripteur_france():
     return regles
 
 
+def _regles_client_a2c():
+    """
+    Tarif client A2C officiel (forfaits par tranche, cf. en-tête) — auparavant codé en dur
+    dans `_forfait_a2c` ; désormais porté par une grille versionnée (aucune valeur dans le code).
+    Au-delà de 100 pages : 5 € / page (règle historique de `_forfait_a2c`).
+    """
+    regles = [{
+        "libelle": "Au-delà de 100 pages → 5 € / page",
+        "type_regle": TypeRegleEnum.BASE,
+        "condition_type": ConditionTypeEnum.SI_VOLUME,
+        "condition_valeur": {"pages_min": "100.01"},
+        "mode_calcul": ModeCalculEnum.PAR_PAGE,
+        "valeur": Decimal("5.00"),
+        "unite": "€/page",
+        "priorite": 5,
+    }]
+    for r in _regles_retranscripteur_france():
+        regles.append({**r, "libelle": r["libelle"].replace("retranscripteur France", "client")})
+    return regles
+
+
 def _regles_retranscripteur_togo():
     """
     Convention collaboration Togo — forfait par tranche de pages (tarifs réduits).
@@ -160,6 +181,21 @@ GRILLES = [
         ],
     },
 
+    # ── Grille client A2C par tranche (remplace la référence 5 €/page) ─────
+    {
+        "nom": "Tarif client A2C — forfaits par tranche",
+        "type": TypeGrilleEnum.CLIENT,
+        "cible": CibleGrilleEnum.GLOBAL,
+        "version": "2026.1",
+        "active": True,
+        "description": (
+            "Forfaits client officiels A2C : 1–9 p 50 €, 10–20 p 100 €, puis +50 € par tranche "
+            "de 10 pages jusqu'à 100 pages (500 €) ; au-delà 5 €/page."
+        ),
+        "deactivate_old": "Tarif client standard",
+        "regles": _regles_client_a2c(),
+    },
+
     # ── Retranscripteur France (remplace le placeholder 0.25 €/page) ───────
     {
         "nom": "Tarif retranscripteur France",
@@ -183,12 +219,11 @@ GRILLES = [
         "type": TypeGrilleEnum.RETRANSCRIPTEUR,
         "cible": CibleGrilleEnum.PRESTATAIRE_SPECIFIQUE,
         "version": "2025.1",
-        "active": False,
+        "active": True,
         "description": (
             "Convention collaboration Togo — tarifs réduits signés. "
             "Forfait par tranche : 25 € (1–9 p) à 350 € (81–100 p). "
-            "Inactive par défaut. Pour l'assigner à un prestataire basé au Togo : "
-            "1) Activer cette grille, 2) Définir cible=prestataire_specifique + cible_id."
+            "S'applique uniquement aux retranscripteurs auxquels elle est attribuée (fiche retranscripteur)."
         ),
         "regles": _regles_retranscripteur_togo(),
     },
@@ -224,8 +259,14 @@ GRILLES = [
         "type": TypeGrilleEnum.URGENCE,
         "cible": CibleGrilleEnum.GLOBAL,
         "version": "1.0",
-        "active": True,
-        "description": "Majoration +30 % appliquée sur le montant client en cas d'urgence.",
+        "active": False,
+        "description": (
+            "DÉSACTIVÉE tant que la cliente n'a pas confirmé sa règle d'urgence. Valeurs reprises de "
+            "l'ancien calcul (+30 %, client et retranscripteur) à titre indicatif seulement."
+        ),
+        "applique_client": True,
+        "applique_retranscripteur": True,
+        "conditions": {"case_cochee": True, "dossier_signale_urgent": True, "delai_max_jours": None},
         "regles": [
             {
                 "libelle": "Majoration urgence client +30%",
@@ -243,7 +284,12 @@ GRILLES = [
 
 # ── Fonctions utilitaires ─────────────────────────────────────────────────────
 
-def _deactivate_by_name(db, nom: str, type_grille: TypeGrilleEnum) -> None:
+# Date d'application des grilles initiales : antérieure à tout dossier, pour que les dossiers
+# existants trouvent toujours leur grille à leur date de réception.
+DATE_INITIALE = date(2020, 1, 1)
+
+
+def _deactivate_by_name(db, nom: str, type_grille: TypeGrilleEnum):
     old = db.query(GrilleTarifaire).filter(
         GrilleTarifaire.nom == nom,
         GrilleTarifaire.type == type_grille,
@@ -253,6 +299,7 @@ def _deactivate_by_name(db, nom: str, type_grille: TypeGrilleEnum) -> None:
         old.active = False
         db.flush()
         print(f"  ⚠  Grille désactivée (remplacée) : {old.nom}")
+    return old
 
 
 def seed_grilles():
@@ -272,21 +319,26 @@ def seed_grilles():
                 skipped += 1
                 continue
 
-            # Désactivation de l'ancienne grille si indiqué
+            # Désactivation de l'ancienne grille si indiqué (elle reste dans l'historique de la même famille)
+            ancienne = None
             if "deactivate_old" in spec:
-                _deactivate_by_name(db, spec["deactivate_old"], spec["type"])
+                ancienne = _deactivate_by_name(db, spec["deactivate_old"], spec["type"])
 
             grille = GrilleTarifaire(
                 nom=spec["nom"],
                 type=spec["type"],
                 cible=spec["cible"],
                 version=spec["version"],
-                date_debut=date.today(),
+                date_debut=DATE_INITIALE,
                 active=spec.get("active", True),
                 description=spec.get("description"),
+                applique_client=spec.get("applique_client", True),
+                applique_retranscripteur=spec.get("applique_retranscripteur", True),
+                conditions=spec.get("conditions"),
             )
             db.add(grille)
             db.flush()
+            grille.famille_id = (ancienne.famille_id or ancienne.id) if ancienne else grille.id
 
             for r in spec["regles"]:
                 regle = RegleTarifaire(
@@ -310,10 +362,6 @@ def seed_grilles():
             created += 1
 
         print(f"\nSeed grilles terminé. {created} créée(s), {skipped} ignorée(s).")
-        if created > 0:
-            print("\nNOTE : Pour activer la grille Togo sur un prestataire spécifique :")
-            print("  1. Ouvrir 'Tarif retranscripteur Togo' dans Grilles tarifaires")
-            print("  2. Activer la grille + définir cible_id = UUID du prestataire")
 
     finally:
         db.close()

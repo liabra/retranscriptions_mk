@@ -3,6 +3,11 @@
 Revision ID: 0004
 Revises: 0003_upload_local
 Create Date: 2026-04-05
+
+fix (audit B10) : la migration 0001 crée `users.role` en TEXT ; le type `roleenum` n'existe
+que si le schéma a été créé par SQLAlchemy (create_all). L'ajout de valeur est donc
+conditionnel. SQLAlchemy enregistre le NOM du membre (« CLIENT ») : les deux graphies
+sont ajoutées pour couvrir les deux modes de création. Sans effet si déjà appliquée.
 """
 from alembic import op
 
@@ -13,11 +18,18 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # PostgreSQL: ADD VALUE is safe even if already present (IF NOT EXISTS)
-    op.execute("ALTER TYPE roleenum ADD VALUE IF NOT EXISTS 'client'")
+    op.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'roleenum') THEN
+                ALTER TYPE roleenum ADD VALUE IF NOT EXISTS 'CLIENT';
+                ALTER TYPE roleenum ADD VALUE IF NOT EXISTS 'client';
+            END IF;
+        END
+        $$;
+    """)
 
 
 def downgrade() -> None:
-    # PostgreSQL does not support removing enum values without recreating the type.
-    # Downgrade is a no-op — the value is simply unused if the role is removed from code.
+    # PostgreSQL ne permet pas de retirer une valeur d'enum : sans effet.
     pass

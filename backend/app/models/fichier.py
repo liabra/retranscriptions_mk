@@ -42,7 +42,7 @@ class FichierDossier(Base):
         Enum(TypeDocumentEnum), nullable=False
     )
     nom_fichier: Mapped[str] = mapped_column(String(500), nullable=False)
-    url_onedrive: Mapped[str] = mapped_column(Text, nullable=False)
+    url_onedrive: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # fix: aligné sur la migration 0003 ; jamais exposé
     version: Mapped[str] = mapped_column(String(20), nullable=False, default="1.0")
     statut: Mapped[StatutFichierEnum] = mapped_column(
         Enum(StatutFichierEnum), nullable=False, default=StatutFichierEnum.DISPONIBLE

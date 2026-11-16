@@ -1,55 +1,39 @@
-# Système de Gestion de Retranscriptions
+# A2C Retranscriptions
 
-Application de gestion de missions de retranscription pour instances représentatives du personnel (CE, CMAS, CSSCT).
+Plateforme de gestion des retranscriptions de réunions (CSE, CMAS, CSSCT…) : réception des audios, attribution, production et relecture des PV, validation, facturation et règlements.
 
-> Document de référence : `docs/Cadrage_Retranscriptions_v2.pdf`
-
----
+Documents de référence :
+- `docs/REFONTE_A2C_AUDIT.md` — audit initial
+- `docs/REFONTE_A2C_RAPPORT_FINAL.md` — rapport de la refonte (fonctionnalités, sécurité, tests, mise en production)
+- `docs/CONFIGURATION_SERVICES_EXTERNES.md` — variables d'environnement, Microsoft Graph, Brevo
 
 ## Stack
 
 | Couche | Technologie |
-|--------|-------------|
-| Frontend | React + TypeScript + Vite |
-| Backend | FastAPI (Python 3.11+) |
-| ORM | SQLAlchemy + Alembic |
-| Base de données | PostgreSQL 15+ |
-| Auth | JWT + RBAC |
-| PDF | WeasyPrint |
-| Deploy | Railway + GitHub CI/CD |
-
----
+|---|---|
+| Frontend | React 19 + TypeScript + Vite |
+| Backend | FastAPI (Python 3.12), SQLAlchemy 2, Alembic |
+| Base | PostgreSQL 15+ |
+| Auth | JWT (PyJWT) + permissions configurables |
+| Fichiers | Microsoft Graph (OneDrive) en proxy, PV en base ou OneDrive |
+| Emails | Brevo (API v3) |
+| Déploiement | Railway |
 
 ## Démarrage local
 
-### Prérequis
-
-- Python 3.11+
-- Node.js 18+
-- PostgreSQL 15+
-
 ### Backend
-
 ```bash
 cd backend
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env
-# Remplir .env avec vos valeurs
-
-# Migrations
+python3.12 -m venv .venv312 && source .venv312/bin/activate
+pip install -r requirements-dev.txt
+cp .env.example .env        # renseigner SECRET_KEY, ENCRYPTION_KEY, DATABASE_URL
 alembic upgrade head
-
-# Lancer
+python seed.py && python seed_grilles.py && python seed_parametres.py
+python scripts/donnees_demo.py   # facultatif : jeu de démonstration (refusé en production)
 uvicorn app.main:app --reload
 ```
 
-API disponible sur : http://localhost:8000
-Docs Swagger : http://localhost:8000/docs
-
 ### Frontend
-
 ```bash
 cd frontend
 npm install
@@ -57,33 +41,15 @@ cp .env.example .env.local
 npm run dev
 ```
 
-App disponible sur : http://localhost:5173
-
----
-
-## Structure du projet
-
+## Tests
+```bash
+cd backend && python -m pytest -q        # PostgreSQL réel : pgserver local ou TEST_DATABASE_URL
+cd frontend && npm test && npm run lint && npm run build
 ```
-├── backend/          # FastAPI + SQLAlchemy
-│   ├── app/
-│   │   ├── api/      # Endpoints REST
-│   │   ├── core/     # Config, sécurité, dépendances
-│   │   ├── models/   # Modèles SQLAlchemy
-│   │   ├── schemas/  # Schémas Pydantic
-│   │   ├── services/ # Logique métier (dont moteur tarifaire)
-│   │   └── db/       # Session, base
-│   └── alembic/      # Migrations
-├── frontend/         # React + TypeScript + Vite
-├── docs/             # Documents de référence
-└── database/         # Scripts SQL utilitaires
-```
+La CI GitHub (`.github/workflows/ci.yml`) exécute ces tests ainsi que `pip-audit` et `npm audit`.
 
----
-
-## Sécurité
-
-- Confidentialité maximale — données CE/CMAS/CSSCT
-- Cloisonnement strict par rôle
-- Un prestataire ne voit jamais le montant client
-- Journal d'activité immuable
-- IBAN stocké chiffré (AES-256)
+## Principes de sécurité
+- Les retranscripteurs n'accèdent qu'à leurs missions attribuées ; l'audio leur est transmis en flux par l'API, jamais par un lien OneDrive.
+- Aucune donnée financière, note interne ou indicateur de performance n'est exposé aux retranscripteurs.
+- Droits vérifiés côté serveur sur chaque ressource ; journal d'activité immuable.
+- IBAN et liens privés chiffrés (Fernet) ; secrets uniquement en variables d'environnement.

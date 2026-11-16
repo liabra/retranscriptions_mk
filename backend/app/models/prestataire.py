@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from sqlalchemy import String, Boolean, Integer, Numeric, Text, Enum, ForeignKey, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 
 from app.db.base_class import Base
 
@@ -31,6 +31,10 @@ class Prestataire(Base):
 
     # IBAN chiffré AES-256
     iban_chiffre: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Types d'instance déclarés comme spécialités (["CE", "CSSCT", ...]) — migration 0005
+    specialites: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    notes_internes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # FK vers GrilleTarifaire spécifique à ce prestataire
     grille_tarifaire_id: Mapped[Optional[uuid.UUID]] = mapped_column(

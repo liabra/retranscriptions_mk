@@ -1,357 +1,288 @@
+import html
+import re
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, Response
+from pydantic import BaseModel, Field
 
-from app.core.deps import DbDep, CurrentUser, require_admin_or_coordinator
+from app.api.v1.common import get_dossier, dossier_resume
+from app.core.config import settings
+from app.core.deps import DbDep, require_permission
 from app.models.affectation import Affectation, StatutAffectationEnum, RoleAffectationEnum
-from app.models.dossier import Dossier, StatutDossierEnum
 from app.models.client import Client
+from app.models.dossier import Dossier
 from app.models.facture import FactureClient, StatutPaiementEnum
-from app.models.paiement import PaiementPrestataire, StatutPaiementPrestaEnum, RolePayeEnum
-from app.services import email as email_svc
-from app.models.pricing.calcul import CalculTarifaire
-from app.models.user import User
 from app.models.journal import TypeActionEnum
-from app.schemas.facture import FactureGenerate, FacturePaiementUpdate, FactureOut
+from app.models.paiement import PaiementPrestataire, StatutPaiementPrestaEnum, RolePayeEnum
+from app.models.pricing.calcul import CalculTarifaire, StatutCalculEnum
+from app.models.refonte import Encaissement
+from app.models.user import User
+from app.services import workflow as wf
 from app.services.journal import log_action
+from app.services.notifications import notifier, internes
 
 router = APIRouter()
 
 
-def _get_dossier_or_404(dossier_id: uuid.UUID, db) -> Dossier:
-    d = db.query(Dossier).filter(Dossier.id == dossier_id).first()
-    if not d:
-        raise HTTPException(status_code=404, detail="Dossier introuvable")
-    return d
+class FactureGenerate(BaseModel):
+    tva_applicable: bool = False
+    taux_tva: Decimal = Field(default=Decimal("20.00"), ge=0, le=100)
+    date_echeance: Optional[date] = None
 
 
-def _generate_numero_facture(db) -> str:
+class EncaissementIn(BaseModel):
+    montant: Decimal = Field(gt=0, le=1_000_000)
+    date_encaissement: date
+    mode: Optional[str] = Field(default=None, max_length=30)
+    reference: Optional[str] = Field(default=None, max_length=100)
+    commentaire: Optional[str] = Field(default=None, max_length=1000)
+
+
+class Annulation(BaseModel):
+    motif: str = Field(min_length=3, max_length=1000)
+
+
+def _facture(db, facture_id: uuid.UUID) -> FactureClient:
+    f = db.query(FactureClient).filter(FactureClient.id == facture_id).first()
+    if not f:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+    return f
+
+
+def facture_out(db, f: FactureClient) -> dict:
+    payeur = db.query(Client).filter(Client.id == f.payeur_id).first()
+    dossier = db.query(Dossier).filter(Dossier.id == f.dossier_id).first()
+    return {
+        "id": str(f.id), "numero_facture": f.numero_facture, "dossier_id": str(f.dossier_id),
+        "dossier_reference": dossier.reference if dossier else None,
+        "payeur_id": str(f.payeur_id), "payeur_nom": payeur.nom if payeur else None,
+        "calcul_tarifaire_id": str(f.calcul_tarifaire_id),
+        "montant_ht": f.montant_ht, "tva_applicable": f.tva_applicable, "taux_tva": f.taux_tva,
+        "montant_tva": f.montant_tva, "montant_ttc": f.montant_ttc,
+        "montant_encaisse": f.montant_encaisse or Decimal("0.00"),
+        "reste_a_encaisser": (f.montant_ttc - (f.montant_encaisse or 0)) if not f.annulee_le else Decimal("0.00"),
+        "date_emission": f.date_emission, "date_echeance": f.date_echeance,
+        "statut_paiement": f.statut_paiement.value, "annulee_le": f.annulee_le, "motif_annulation": f.motif_annulation,
+        "en_retard": bool(not f.annulee_le and f.date_echeance and f.date_echeance < date.today()
+                          and f.statut_paiement != StatutPaiementEnum.SOLDEE),
+        "encaissements": [{
+            "id": str(e.id), "montant": e.montant, "date_encaissement": e.date_encaissement, "mode": e.mode,
+            "reference": e.reference, "commentaire": e.commentaire, "created_at": e.created_at,
+        } for e in f.encaissements.order_by(Encaissement.date_encaissement).all()],
+    }
+
+
+def _prochain_numero(db) -> str:
+    """Numérotation continue sans réutilisation (les factures ne sont jamais supprimées)."""
     year = datetime.now(timezone.utc).year
-    count = (
-        db.query(FactureClient)
-        .filter(FactureClient.numero_facture.like(f"FAC-{year}-%"))
-        .count()
-    )
-    return f"FAC-{year}-{count + 1:04d}"
+    numeros = [n for (n,) in db.query(FactureClient.numero_facture)
+               .filter(FactureClient.numero_facture.like(f"FAC-{year}-%")).all()]
+    maxi = max((int(m.group(1)) for n in numeros if (m := re.match(rf"FAC-{year}-(\d+)$", n))), default=0)
+    return f"FAC-{year}-{maxi + 1:04d}"
 
 
-@router.post("/dossiers/{dossier_id}/generer-facture", response_model=FactureOut, status_code=201)
-def generer_facture(
-    dossier_id: uuid.UUID,
-    payload: FactureGenerate,
-    db: DbDep,
-    admin: User = Depends(require_admin_or_coordinator),
-):
-    dossier = _get_dossier_or_404(dossier_id, db)
+def _generer_paiements(db, d: Dossier, calcul: CalculTarifaire) -> int:
+    nb = 0
+    affs = db.query(Affectation).filter(
+        Affectation.dossier_id == d.id, Affectation.statut == StatutAffectationEnum.VALIDE,
+        Affectation.type_role == RoleAffectationEnum.RETRANSCRIPTEUR,
+    ).all()
+    for aff in affs:
+        if db.query(PaiementPrestataire).filter(PaiementPrestataire.affectation_id == aff.id).first():
+            continue
+        db.add(PaiementPrestataire(
+            affectation_id=aff.id, dossier_id=d.id, prestataire_id=aff.prestataire_id,
+            role_paye=RolePayeEnum.RETRANSCRIPTEUR, nombre_pages=calcul.nombre_pages,
+            detail_calcul={"calcul_id": str(calcul.id), "version_calcul": calcul.version_calcul},
+            montant_brut=calcul.montant_retranscripteur, ajustement_manuel=Decimal("0.00"),
+            montant_final=calcul.montant_retranscripteur, statut=StatutPaiementPrestaEnum.A_PAYER,
+        ))
+        nb += 1
+    return nb
 
-    existing = db.query(FactureClient).filter(FactureClient.dossier_id == dossier_id).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Une facture existe déjà pour ce dossier")
 
-    if not dossier.calcul_tarifaire_id:
-        raise HTTPException(status_code=400, detail="Aucun calcul tarifaire disponible. Calculez d'abord.")
+@router.get("/factures")
+def lister(db: DbDep, _u: User = Depends(require_permission("finance.voir")),
+           vue: str = Query(default="attente", pattern="^(a_etablir|attente|reglees|annulees|toutes)$"),
+           limit: int = Query(default=100, ge=1, le=500)):
+    if vue == "a_etablir":
+        rows = db.query(Dossier).filter(Dossier.statut_facturation == wf.F_A_ETABLIR,
+                                        Dossier.supprime_le.is_(None)).order_by(Dossier.valide_le).limit(limit).all()
+        out = []
+        for d in rows:
+            item = dossier_resume(db, d)
+            calcul = db.query(CalculTarifaire).filter(CalculTarifaire.id == d.calcul_tarifaire_id).first() \
+                if d.calcul_tarifaire_id else None
+            item["calcul"] = ({"id": str(calcul.id), "statut": calcul.statut.value,
+                               "montant_client_final": calcul.montant_client_final} if calcul else None)
+            item["nombre_pages_final"] = d.nombre_pages_final
+            out.append(item)
+        return {"vue": vue, "items": out}
+    q = db.query(FactureClient)
+    if vue == "attente":
+        q = q.filter(FactureClient.annulee_le.is_(None), FactureClient.statut_paiement != StatutPaiementEnum.SOLDEE)
+    elif vue == "reglees":
+        q = q.filter(FactureClient.annulee_le.is_(None), FactureClient.statut_paiement == StatutPaiementEnum.SOLDEE)
+    elif vue == "annulees":
+        q = q.filter(FactureClient.annulee_le.isnot(None))
+    return {"vue": vue, "items": [facture_out(db, f) for f in
+                                  q.order_by(FactureClient.date_emission.desc()).limit(limit).all()]}
 
-    calcul = db.query(CalculTarifaire).filter(CalculTarifaire.id == dossier.calcul_tarifaire_id).first()
-    if not calcul:
-        raise HTTPException(status_code=404, detail="Calcul tarifaire introuvable")
 
-    payeur_id = dossier.payeur_id or dossier.client_id
+@router.post("/dossiers/{dossier_id}/generer-facture", status_code=201)
+def generer_facture(dossier_id: uuid.UUID, payload: FactureGenerate, db: DbDep,
+                    user: User = Depends(require_permission("finance.gerer"))):
+    d = get_dossier(db, dossier_id, lock=True)
+    if d.statut_facturation != wf.F_A_ETABLIR:
+        raise HTTPException(status_code=409, detail="Le dossier n'est pas en attente de facturation (PV non validé ?)")
+    if db.query(FactureClient).filter(FactureClient.dossier_id == d.id, FactureClient.annulee_le.is_(None)).first():
+        raise HTTPException(status_code=409, detail="Une facture existe déjà pour ce dossier")
+    calcul = db.query(CalculTarifaire).filter(CalculTarifaire.id == d.calcul_tarifaire_id).first() \
+        if d.calcul_tarifaire_id else None
+    if not calcul or calcul.statut != StatutCalculEnum.DEFINITIF:
+        raise HTTPException(status_code=409, detail="Le calcul tarifaire doit être validé avant la facturation")
+
+    payeur_id = d.payeur_id or d.client_id
+    payeur = db.query(Client).filter(Client.id == payeur_id).first()  # fix B1 : payeur défini
+    if not payeur:
+        raise HTTPException(status_code=400, detail="Payeur introuvable")
     montant_ht = calcul.montant_client_final
-    taux_tva = Decimal("0.00")
-    montant_tva = Decimal("0.00")
-
-    if payload.tva_applicable:
-        taux_tva = payload.taux_tva
-        montant_tva = (montant_ht * taux_tva / Decimal("100")).quantize(Decimal("0.01"))
-
-    montant_ttc = montant_ht + montant_tva
-
+    taux = payload.taux_tva if payload.tva_applicable else Decimal("0.00")
+    montant_tva = (montant_ht * taux / Decimal("100")).quantize(Decimal("0.01"))
     facture = FactureClient(
-        numero_facture=_generate_numero_facture(db),
-        dossier_id=dossier_id,
-        payeur_id=payeur_id,
-        calcul_tarifaire_id=calcul.id,
-        montant_ht=montant_ht,
-        tva_applicable=payload.tva_applicable,
-        taux_tva=taux_tva,
-        montant_tva=montant_tva,
-        montant_ttc=montant_ttc,
-        date_emission=date.today(),
-        date_echeance=payload.date_echeance,
-        statut_paiement=StatutPaiementEnum.NON_PAYEE,
+        numero_facture=_prochain_numero(db), dossier_id=d.id, payeur_id=payeur.id, calcul_tarifaire_id=calcul.id,
+        montant_ht=montant_ht, tva_applicable=payload.tva_applicable, taux_tva=taux, montant_tva=montant_tva,
+        montant_ttc=montant_ht + montant_tva, date_emission=date.today(), date_echeance=payload.date_echeance,
+        statut_paiement=StatutPaiementEnum.NON_PAYEE, montant_encaisse=Decimal("0.00"),
     )
     db.add(facture)
-
-    # Auto-transition dossier → FACTURE
-    dossier.statut = StatutDossierEnum.FACTURE
-
     db.flush()
-    log_action(
-        db, TypeActionEnum.PAIEMENT,
-        dossier_id=dossier_id,
-        utilisateur_id=admin.id,
-        detail={
-            "action": "generation_facture",
-            "numero_facture": facture.numero_facture,
-            "montant_ttc": str(montant_ttc),
-        },
-    )
-
-    # Auto-génération paiements prestataires
-    affectations = db.query(Affectation).filter(
-        Affectation.dossier_id == dossier_id,
-        Affectation.statut.in_([
-            StatutAffectationEnum.LIVRE,
-            StatutAffectationEnum.VALIDE,
-            StatutAffectationEnum.EN_COURS,
-        ]),
-    ).all()
-    if affectations and dossier.nombre_pages_final:
-        from decimal import Decimal as D
-        nb_pages = D(str(dossier.nombre_pages_final))
-        for aff in affectations:
-            deja = db.query(PaiementPrestataire).filter(
-                PaiementPrestataire.affectation_id == aff.id
-            ).first()
-            if deja:
-                continue
-            montant_brut = (
-                calcul.montant_retranscripteur
-                if aff.type_role == RoleAffectationEnum.RETRANSCRIPTEUR
-                else calcul.montant_correcteur
-            )
-            role = (
-                RolePayeEnum.RETRANSCRIPTEUR
-                if aff.type_role == RoleAffectationEnum.RETRANSCRIPTEUR
-                else RolePayeEnum.CORRECTEUR
-            )
-            db.add(PaiementPrestataire(
-                affectation_id=aff.id,
-                dossier_id=dossier_id,
-                prestataire_id=aff.prestataire_id,
-                role_paye=role,
-                nombre_pages=nb_pages,
-                detail_calcul={"calcul_id": str(calcul.id)},
-                montant_brut=montant_brut,
-                ajustement_manuel=D("0.00"),
-                montant_final=montant_brut,
-                statut=StatutPaiementPrestaEnum.A_PAYER,
-            ))
-
+    wf.changer_facturation(db, d, wf.F_EMISE, user.id, facture.numero_facture)
+    nb = _generer_paiements(db, d, calcul)
+    log_action(db, TypeActionEnum.PAIEMENT, dossier_id=d.id, utilisateur_id=user.id, detail={
+        "action": "generation_facture", "numero_facture": facture.numero_facture,
+        "montant_ttc": str(facture.montant_ttc), "paiements_prestataires_crees": nb,
+    })
+    notifier(db, internes(db, "finance.voir"), "facture_creee", f"Facture {facture.numero_facture} créée",
+             f"{d.reference} — {facture.montant_ttc} € TTC", lien="/finance", dossier_id=d.id,
+             exclure=user.id, dedup_key=f"facture:{facture.id}")
     db.commit()
-    db.refresh(facture)
-
-    # Email au client
-    if payeur and getattr(payeur, "email_contact", None):
-        echeance_str = facture.date_echeance.strftime("%d/%m/%Y") if facture.date_echeance else "À réception"
-        email_svc.send_facture_client(
-            to=payeur.email_contact,
-            client_nom=payeur.nom,
-            dossier_ref=dossier.reference,
-            numero_facture=facture.numero_facture,
-            montant_ttc=f"{float(montant_ttc):.2f}",
-            date_echeance=echeance_str,
-        )
-
-    return facture
+    return facture_out(db, facture)
 
 
-@router.get("/dossiers/{dossier_id}/facture", response_model=FactureOut)
-def get_facture_dossier(dossier_id: uuid.UUID, db: DbDep, current_user: CurrentUser):
-    _get_dossier_or_404(dossier_id, db)
-    facture = db.query(FactureClient).filter(FactureClient.dossier_id == dossier_id).first()
-    if not facture:
+@router.get("/dossiers/{dossier_id}/facture")
+def facture_du_dossier(dossier_id: uuid.UUID, db: DbDep, _u: User = Depends(require_permission("finance.voir"))):
+    get_dossier(db, dossier_id)
+    f = db.query(FactureClient).filter(FactureClient.dossier_id == dossier_id) \
+        .order_by(FactureClient.annulee_le.isnot(None), FactureClient.date_emission.desc()).first()
+    if not f:
         raise HTTPException(status_code=404, detail="Aucune facture pour ce dossier")
-    return facture
+    return facture_out(db, f)
 
 
-@router.get("/factures/{facture_id}", response_model=FactureOut)
-def get_facture(facture_id: uuid.UUID, db: DbDep, current_user: CurrentUser):
-    facture = db.query(FactureClient).filter(FactureClient.id == facture_id).first()
-    if not facture:
-        raise HTTPException(status_code=404, detail="Facture introuvable")
-    return facture
+@router.get("/factures/{facture_id}")
+def lire(facture_id: uuid.UUID, db: DbDep, _u: User = Depends(require_permission("finance.voir"))):
+    return facture_out(db, _facture(db, facture_id))
 
 
-def _build_facture_html(facture: FactureClient, dossier: Dossier, payeur: Client) -> str:
-    tva_line = ""
-    if facture.tva_applicable:
-        tva_line = f"""
-        <tr>
-            <td>TVA ({facture.taux_tva}%)</td>
-            <td style="text-align:right">{float(facture.montant_tva):.2f} €</td>
-        </tr>"""
-    echeance = facture.date_echeance.strftime("%d/%m/%Y") if facture.date_echeance else "À réception"
-    return f"""<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8">
+@router.post("/factures/{facture_id}/encaissements", status_code=201)
+def encaisser(facture_id: uuid.UUID, payload: EncaissementIn, db: DbDep,
+              user: User = Depends(require_permission("finance.gerer"))):
+    f = _facture(db, facture_id)
+    if f.annulee_le:
+        raise HTTPException(status_code=409, detail="Facture annulée")
+    deja = f.montant_encaisse or Decimal("0.00")
+    if deja + payload.montant > f.montant_ttc:
+        raise HTTPException(status_code=400, detail=f"Montant supérieur au reste à encaisser ({f.montant_ttc - deja} €)")
+    d = get_dossier(db, f.dossier_id, lock=True)
+    db.add(Encaissement(facture_id=f.id, montant=payload.montant, date_encaissement=payload.date_encaissement,
+                        mode=payload.mode, reference=payload.reference, commentaire=payload.commentaire,
+                        saisi_par_id=user.id))
+    f.montant_encaisse = deja + payload.montant
+    solde = f.montant_encaisse >= f.montant_ttc
+    f.statut_paiement = StatutPaiementEnum.SOLDEE if solde else StatutPaiementEnum.PARTIELLEMENT
+    wf.changer_facturation(db, d, wf.F_REGLEE if solde else wf.F_PARTIELLE, user.id,
+                           f"encaissement {payload.montant} €")
+    notifier(db, internes(db, "finance.voir"), "encaissement_recu",
+             f"Encaissement reçu : {f.numero_facture}", f"{payload.montant} € reçus"
+             + (" — facture soldée." if solde else "."), lien="/finance", dossier_id=d.id, exclure=user.id)
+    db.commit()
+    return facture_out(db, f)
+
+
+@router.post("/factures/{facture_id}/annuler")
+def annuler(facture_id: uuid.UUID, payload: Annulation, db: DbDep,
+            user: User = Depends(require_permission("finance.gerer"))):
+    """Remplace l'ancienne suppression : la facture et son numéro sont conservés."""
+    f = _facture(db, facture_id)
+    if f.annulee_le:
+        raise HTTPException(status_code=409, detail="Facture déjà annulée")
+    if (f.montant_encaisse or 0) > 0:
+        raise HTTPException(status_code=409, detail="Facture partiellement réglée : établissez un avoir comptable")
+    d = get_dossier(db, f.dossier_id, lock=True)
+    f.annulee_le = datetime.now(timezone.utc)
+    f.motif_annulation = payload.motif
+    wf.changer_facturation(db, d, wf.F_A_ETABLIR, user.id, f"annulation {f.numero_facture} : {payload.motif}")
+    db.commit()
+    return facture_out(db, f)
+
+
+def _facture_html(f: FactureClient, dossier: Dossier, payeur: Client) -> str:
+    e = lambda v: html.escape(str(v or ""))  # fix S10 : échappement systématique  # noqa: E731
+    tva = (f'<tr><td>TVA ({e(f.taux_tva)} %)</td><td class="r">{float(f.montant_tva):.2f} €</td></tr>'
+           if f.tva_applicable else "")
+    echeance = f.date_echeance.strftime("%d/%m/%Y") if f.date_echeance else "À réception"
+    annulee = '<p class="ann">FACTURE ANNULÉE</p>' if f.annulee_le else ""
+    return f"""<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>{e(f.numero_facture)}</title>
 <style>
-  body {{ font-family: Arial, sans-serif; font-size: 12px; color: #111; margin: 40px; }}
-  h1 {{ font-size: 20px; margin-bottom: 4px; }}
-  .subtitle {{ color: #666; margin-bottom: 24px; }}
-  .grid {{ display: flex; gap: 40px; margin-bottom: 24px; }}
-  .block {{ flex: 1; }}
-  .label {{ color: #666; font-size: 11px; text-transform: uppercase; margin-bottom: 2px; }}
-  table {{ width: 100%; border-collapse: collapse; margin-top: 16px; }}
-  th {{ background: #f4f4f4; padding: 8px; text-align: left; font-size: 11px; text-transform: uppercase; }}
-  td {{ padding: 8px; border-bottom: 1px solid #eee; }}
-  .total-row td {{ font-weight: bold; font-size: 14px; background: #f9f9f9; }}
-  .footer {{ margin-top: 40px; font-size: 11px; color: #999; }}
-  .badge {{ display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; }}
-  .badge-green {{ background: #d1fae5; color: #065f46; }}
-  .badge-gray {{ background: #f3f4f6; color: #374151; }}
-</style>
-</head>
-<body>
-<h1>FACTURE {facture.numero_facture}</h1>
-<div class="subtitle">
-  Émise le {facture.date_emission.strftime("%d/%m/%Y")} ·
-  Dossier {dossier.reference}
-</div>
-
+body{{font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#1f2937;margin:40px}}
+h1{{font-size:22px;margin:0 0 4px;color:#4338ca}} .muted{{color:#6b7280}}
+.grid{{display:flex;gap:40px;margin:28px 0}} .b{{flex:1}} .l{{color:#6b7280;font-size:10px;text-transform:uppercase;letter-spacing:.05em}}
+table{{width:100%;border-collapse:collapse;margin-top:12px}} th{{background:#eef2ff;text-align:left;padding:8px;font-size:11px}}
+td{{padding:8px;border-bottom:1px solid #e5e7eb}} .r{{text-align:right}} .t td{{font-weight:bold;font-size:14px}}
+.ann{{color:#b91c1c;font-weight:bold;font-size:16px}}
+</style></head><body>
+<h1>Facture {e(f.numero_facture)}</h1>
+<div class="muted">{e(settings.APP_NAME)} · émise le {f.date_emission.strftime("%d/%m/%Y")}</div>{annulee}
 <div class="grid">
-  <div class="block">
-    <div class="label">Destinataire</div>
-    <strong>{payeur.nom}</strong><br>
-    {payeur.type if payeur.type else ""}
-  </div>
-  <div class="block">
-    <div class="label">Référence dossier</div>
-    <strong>{dossier.reference}</strong><br>
-    {dossier.type_instance.value if dossier.type_instance else ""}
-    {(" — " + dossier.titre) if dossier.titre else ""}
-  </div>
-  <div class="block">
-    <div class="label">Échéance</div>
-    <strong>{echeance}</strong>
-  </div>
+<div class="b"><div class="l">Destinataire</div><strong>{e(payeur.nom)}</strong><br>{e(payeur.adresse)}</div>
+<div class="b"><div class="l">Dossier</div><strong>{e(dossier.reference)}</strong><br>{e(dossier.type_instance.value)} {e(dossier.titre)}</div>
+<div class="b"><div class="l">Échéance</div><strong>{e(echeance)}</strong></div>
 </div>
+<table><thead><tr><th>Désignation</th><th class="r">Montant</th></tr></thead><tbody>
+<tr><td>Retranscription — dossier {e(dossier.reference)}</td><td class="r">{float(f.montant_ht):.2f} €</td></tr>
+{tva}<tr class="t"><td>Total TTC</td><td class="r">{float(f.montant_ttc):.2f} €</td></tr>
+</tbody></table>
+<p class="muted" style="margin-top:32px">Document généré par la plateforme {e(settings.APP_NAME)}.</p>
+</body></html>"""
 
-<table>
-  <thead>
-    <tr>
-      <th>Description</th>
-      <th style="text-align:right">Montant</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>Prestation de retranscription — {dossier.reference}</td>
-      <td style="text-align:right">{float(facture.montant_ht):.2f} €</td>
-    </tr>
-    {tva_line}
-    <tr class="total-row">
-      <td>TOTAL TTC</td>
-      <td style="text-align:right">{float(facture.montant_ttc):.2f} €</td>
-    </tr>
-  </tbody>
-</table>
 
-<div style="margin-top:16px">
-  Statut : <span class="badge {'badge-green' if facture.statut_paiement.value == 'soldee' else 'badge-gray'}">
-    {'Soldée' if facture.statut_paiement.value == 'soldee' else 'En attente de paiement'}
-  </span>
-</div>
-
-<div class="footer">
-  Document généré automatiquement — Système de gestion des retranscriptions
-</div>
-</body>
-</html>"""
+def _deny_fetch(url, *args, **kwargs):
+    raise ValueError("Ressource externe interdite")  # fix S10 : aucun accès réseau/fichier à la génération PDF
 
 
 @router.get("/factures/{facture_id}/html", response_class=HTMLResponse)
-def get_facture_html(facture_id: uuid.UUID, db: DbDep, current_user: CurrentUser):
-    facture = db.query(FactureClient).filter(FactureClient.id == facture_id).first()
-    if not facture:
-        raise HTTPException(status_code=404, detail="Facture introuvable")
-    dossier = db.query(Dossier).filter(Dossier.id == facture.dossier_id).first()
-    payeur = db.query(Client).filter(Client.id == facture.payeur_id).first()
-    if not dossier or not payeur:
-        raise HTTPException(status_code=500, detail="Données manquantes pour générer la facture")
-    return HTMLResponse(content=_build_facture_html(facture, dossier, payeur))
+def facture_html(facture_id: uuid.UUID, db: DbDep, _u: User = Depends(require_permission("finance.voir"))):
+    f = _facture(db, facture_id)
+    dossier = db.query(Dossier).filter(Dossier.id == f.dossier_id).first()
+    payeur = db.query(Client).filter(Client.id == f.payeur_id).first()
+    return HTMLResponse(_facture_html(f, dossier, payeur),
+                        headers={"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'"})
 
 
 @router.get("/factures/{facture_id}/pdf")
-def get_facture_pdf(facture_id: uuid.UUID, db: DbDep, current_user: CurrentUser):
-    facture = db.query(FactureClient).filter(FactureClient.id == facture_id).first()
-    if not facture:
-        raise HTTPException(status_code=404, detail="Facture introuvable")
-    dossier = db.query(Dossier).filter(Dossier.id == facture.dossier_id).first()
-    payeur = db.query(Client).filter(Client.id == facture.payeur_id).first()
-    if not dossier or not payeur:
-        raise HTTPException(status_code=500, detail="Données manquantes")
-
-    html = _build_facture_html(facture, dossier, payeur)
+def facture_pdf(facture_id: uuid.UUID, db: DbDep, _u: User = Depends(require_permission("finance.voir"))):
+    f = _facture(db, facture_id)
+    dossier = db.query(Dossier).filter(Dossier.id == f.dossier_id).first()
+    payeur = db.query(Client).filter(Client.id == f.payeur_id).first()
     try:
         from weasyprint import HTML
-        pdf_bytes = HTML(string=html).write_pdf()
-        return Response(
-            content=pdf_bytes,
-            media_type="application/pdf",
-            headers={"Content-Disposition": f'inline; filename="{facture.numero_facture}.pdf"'},
-        )
-    except Exception as e:
-        # Fallback HTML si WeasyPrint indisponible (env sans GTK)
-        return HTMLResponse(content=html, status_code=200)
-
-
-@router.delete("/factures/{facture_id}", status_code=204)
-def delete_facture(
-    facture_id: uuid.UUID,
-    db: DbDep,
-    admin: User = Depends(require_admin_or_coordinator),
-):
-    facture = db.query(FactureClient).filter(FactureClient.id == facture_id).first()
-    if not facture:
-        raise HTTPException(status_code=404, detail="Facture introuvable")
-    if facture.statut_paiement != StatutPaiementEnum.NON_PAYEE:
-        raise HTTPException(status_code=400, detail="Seules les factures non payées peuvent être supprimées")
-    log_action(
-        db, TypeActionEnum.PAIEMENT,
-        dossier_id=facture.dossier_id,
-        utilisateur_id=admin.id,
-        detail={"action": "suppression_facture", "numero_facture": facture.numero_facture},
-    )
-    db.delete(facture)
-    db.commit()
-
-
-@router.patch("/factures/{facture_id}/paiement", response_model=FactureOut)
-def update_facture_paiement(
-    facture_id: uuid.UUID,
-    payload: FacturePaiementUpdate,
-    db: DbDep,
-    admin: User = Depends(require_admin_or_coordinator),
-):
-    facture = db.query(FactureClient).filter(FactureClient.id == facture_id).first()
-    if not facture:
-        raise HTTPException(status_code=404, detail="Facture introuvable")
-    try:
-        facture.statut_paiement = StatutPaiementEnum(payload.statut_paiement)
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"Statut invalide: {payload.statut_paiement}")
-
-    # Auto-transition dossier → PAYE_ENTRANT quand facture soldée
-    if facture.statut_paiement == StatutPaiementEnum.SOLDEE:
-        dossier = db.query(Dossier).filter(Dossier.id == facture.dossier_id).first()
-        if dossier and dossier.statut == StatutDossierEnum.FACTURE:
-            dossier.statut = StatutDossierEnum.PAYE_ENTRANT
-
-    log_action(
-        db, TypeActionEnum.PAIEMENT,
-        dossier_id=facture.dossier_id,
-        utilisateur_id=admin.id,
-        detail={
-            "action": "update_statut_facture",
-            "facture_id": str(facture_id),
-            "statut": payload.statut_paiement,
-        },
-    )
-    db.commit()
-    db.refresh(facture)
-    return facture
+        pdf = HTML(string=_facture_html(f, dossier, payeur), url_fetcher=_deny_fetch).write_pdf()
+    except Exception:
+        raise HTTPException(status_code=503, detail="Génération PDF indisponible sur ce serveur : utilisez la version HTML")
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{f.numero_facture}.pdf"'})

@@ -1,9 +1,10 @@
 import uuid
+from datetime import date
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.deps import DbDep, CurrentUser, require_admin_or_coordinator
+from app.core.deps import DbDep, require_permission
 from app.models.pricing.grille import GrilleTarifaire, TypeGrilleEnum, CibleGrilleEnum
 from app.models.pricing.regle import RegleTarifaire, TypeRegleEnum, ConditionTypeEnum, ModeCalculEnum
 from app.models.user import User
@@ -17,6 +18,20 @@ from app.services.journal import log_action
 router = APIRouter()
 
 
+def _grille_utilisee(db, grille_id) -> bool:
+    """Vrai si la version a servi à un calcul (ses règles sont alors figées)."""
+    from app.services.tarifs import grille_utilisee
+    return grille_utilisee(db, grille_id)
+
+
+def _proteger(db, grille_id) -> None:
+    if _grille_utilisee(db, grille_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Cette grille a déjà servi à des calculs : créez une nouvelle version plutôt que de la modifier",
+        )
+
+
 def _get_grille_or_404(grille_id: uuid.UUID, db) -> GrilleTarifaire:
     g = db.query(GrilleTarifaire).filter(GrilleTarifaire.id == grille_id).first()
     if not g:
@@ -27,7 +42,7 @@ def _get_grille_or_404(grille_id: uuid.UUID, db) -> GrilleTarifaire:
 @router.get("/grilles", response_model=List[GrilleOut])
 def list_grilles(
     db: DbDep,
-    current_user: CurrentUser,
+    current_user: User = Depends(require_permission("tarifs.gerer", "finance.voir")),
     actif_only: bool = False,
 ):
     q = db.query(GrilleTarifaire)
@@ -40,7 +55,7 @@ def list_grilles(
 def create_grille(
     payload: GrilleCreate,
     db: DbDep,
-    admin: User = Depends(require_admin_or_coordinator),
+    admin: User = Depends(require_permission("tarifs.gerer")),
 ):
     try:
         type_grille = TypeGrilleEnum(payload.type)
@@ -62,6 +77,7 @@ def create_grille(
     )
     db.add(grille)
     db.flush()
+    grille.famille_id = grille.id
     log_action(
         db, TypeActionEnum.CONFIG_GRILLE,
         utilisateur_id=admin.id,
@@ -73,7 +89,7 @@ def create_grille(
 
 
 @router.get("/grilles/{grille_id}", response_model=GrilleWithReglesOut)
-def get_grille(grille_id: uuid.UUID, db: DbDep, current_user: CurrentUser):
+def get_grille(grille_id: uuid.UUID, db: DbDep, current_user: User = Depends(require_permission("tarifs.gerer", "finance.voir"))):
     grille = _get_grille_or_404(grille_id, db)
     regles = (
         db.query(RegleTarifaire)
@@ -91,9 +107,14 @@ def update_grille(
     grille_id: uuid.UUID,
     payload: GrilleUpdate,
     db: DbDep,
-    admin: User = Depends(require_admin_or_coordinator),
+    admin: User = Depends(require_permission("tarifs.gerer")),
 ):
     grille = _get_grille_or_404(grille_id, db)
+    sensibles = set(payload.model_dump(exclude_unset=True)) - {"active", "date_fin", "description", "nom"}
+    if payload.date_fin is not None and payload.date_fin < date.today():
+        sensibles.add("date_fin")  # fix : pas de clôture rétroactive d'une grille déjà utilisée
+    if sensibles:
+        _proteger(db, grille_id)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(grille, field, value)
     log_action(
@@ -114,7 +135,7 @@ def update_grille(
 def deactivate_grille(
     grille_id: uuid.UUID,
     db: DbDep,
-    admin: User = Depends(require_admin_or_coordinator),
+    admin: User = Depends(require_permission("tarifs.gerer")),
 ):
     grille = _get_grille_or_404(grille_id, db)
     grille.active = False
@@ -127,7 +148,7 @@ def deactivate_grille(
 
 
 @router.get("/grilles/{grille_id}/regles", response_model=List[RegleOut])
-def list_regles(grille_id: uuid.UUID, db: DbDep, current_user: CurrentUser):
+def list_regles(grille_id: uuid.UUID, db: DbDep, current_user: User = Depends(require_permission("tarifs.gerer", "finance.voir"))):
     _get_grille_or_404(grille_id, db)
     return (
         db.query(RegleTarifaire)
@@ -142,9 +163,10 @@ def create_regle(
     grille_id: uuid.UUID,
     payload: RegleCreate,
     db: DbDep,
-    admin: User = Depends(require_admin_or_coordinator),
+    admin: User = Depends(require_permission("tarifs.gerer")),
 ):
     _get_grille_or_404(grille_id, db)
+    _proteger(db, grille_id)
     try:
         type_r = TypeRegleEnum(payload.type_regle)
         cond_t = ConditionTypeEnum(payload.condition_type)
@@ -183,11 +205,12 @@ def update_regle(
     regle_id: uuid.UUID,
     payload: RegleUpdate,
     db: DbDep,
-    admin: User = Depends(require_admin_or_coordinator),
+    admin: User = Depends(require_permission("tarifs.gerer")),
 ):
     regle = db.query(RegleTarifaire).filter(RegleTarifaire.id == regle_id).first()
     if not regle:
         raise HTTPException(status_code=404, detail="Règle introuvable")
+    _proteger(db, regle.grille_id)
     changes = payload.model_dump(exclude_unset=True)
     if "type_regle" in changes:
         changes["type_regle"] = TypeRegleEnum(changes["type_regle"])
@@ -215,11 +238,12 @@ def update_regle(
 def delete_regle(
     regle_id: uuid.UUID,
     db: DbDep,
-    admin: User = Depends(require_admin_or_coordinator),
+    admin: User = Depends(require_permission("tarifs.gerer")),
 ):
     regle = db.query(RegleTarifaire).filter(RegleTarifaire.id == regle_id).first()
     if not regle:
         raise HTTPException(status_code=404, detail="Règle introuvable")
+    _proteger(db, regle.grille_id)
     regle.actif = False
     log_action(
         db, TypeActionEnum.CONFIG_GRILLE,
@@ -227,3 +251,21 @@ def delete_regle(
         detail={"action": "desactivation_regle", "regle_id": str(regle_id)},
     )
     db.commit()
+
+
+@router.post("/grilles/{grille_id}/nouvelle-version", response_model=GrilleOut, status_code=201)
+def nouvelle_version(
+    grille_id: uuid.UUID,
+    db: DbDep,
+    admin: User = Depends(require_permission("tarifs.gerer")),
+):
+    """Duplique la grille et ses règles actives en brouillon ; l'ancienne version reste intacte."""
+    from app.services.tarifs import nouvelle_version as _nv
+    source = _get_grille_or_404(grille_id, db)
+    copie = _nv(db, source, admin.id)
+    log_action(db, TypeActionEnum.CONFIG_GRILLE, utilisateur_id=admin.id,
+               detail={"action": "nouvelle_version_grille", "source": str(source.id), "copie": str(copie.id),
+                       "version": copie.version})
+    db.commit()
+    db.refresh(copie)
+    return copie

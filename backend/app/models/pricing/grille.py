@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy import String, Boolean, Text, Date, DateTime, Enum, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 
 from app.db.base_class import Base
 
@@ -48,6 +48,18 @@ class GrilleTarifaire(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Refonte tarifs administrables (migration 0006)
+    # Toutes les versions d'une même grille partagent famille_id ; chaque ligne est une version.
+    famille_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    brouillon: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Restreint la grille à un type d'instance (CE, CMAS, CSSCT, Autre) ; null = toutes
+    type_instance: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    # Majorations : application indépendante au client et au retranscripteur
+    applique_client: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    applique_retranscripteur: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Majorations : conditions de déclenchement ({"case_cochee", "dossier_signale_urgent", "delai_max_jours"})
+    conditions: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
     creee_par_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True

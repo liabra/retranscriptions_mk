@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *.pyo
 .venv/
+.venv*/
 venv/
 env/
 *.egg-info/
@@ -44,6 +45,7 @@ logs/
 
 # Uploads / fichiers sensibles
 uploads/
+stockage_local/
 fichiers/
 audio/
 documents/

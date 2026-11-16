@@ -1,7 +1,8 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { RouterProvider } from 'react-router-dom'
-import { AuthProvider } from '@/features/auth/AuthContext'
+import '@fontsource-variable/outfit'
+import { AuthProvider } from '@/lib/auth'
 import { router } from '@/routes'
 import './index.css'
 
@@ -10,5 +11,5 @@ createRoot(document.getElementById('root')!).render(
     <AuthProvider>
       <RouterProvider router={router} />
     </AuthProvider>
-  </StrictMode>
+  </StrictMode>,
 )

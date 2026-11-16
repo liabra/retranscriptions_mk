@@ -1,174 +1,66 @@
 """
-Service d'envoi d'emails — smtplib natif, aucune dépendance externe.
-Si SMTP_HOST est absent, les emails sont loggés sans être envoyés (mode dégradé silencieux).
+Envoi d'emails transactionnels via l'API Brevo (v3).
+
+- Non configuré (BREVO_API_KEY / BREVO_SENDER_EMAIL absents) : aucun envoi, et aucun
+  succès simulé : l'appelant enregistre le statut "non_configure".
+- Tout contenu dynamique est échappé (fix S10 : injection HTML dans les emails).
 """
+import html
 import logging
-import smtplib
-import threading
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+from typing import Optional
+
+import httpx
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-APP_NAME = "A2C Retranscriptions"
-BRAND_COLOR = "#2563eb"
+BREVO_URL = "https://api.brevo.com/v3/smtp/email"
+BRAND = "#4f46e5"
 
 
-def _send(to: str, subject: str, body_html: str) -> None:
-    if not settings.SMTP_HOST or not settings.SMTP_USER:
-        logger.info(f"[EMAIL SKIPPED — no SMTP config] To={to} | Subject={subject}")
-        return
+def render(titre: str, message: Optional[str], lien: Optional[str]) -> str:
+    t = html.escape(titre)
+    m = html.escape(message or "").replace("\n", "<br>")
+    bouton = ""
+    if lien and lien.startswith("/"):
+        url = html.escape(settings.APP_PUBLIC_URL.rstrip("/") + lien, quote=True)
+        bouton = (f'<p style="margin:24px 0"><a href="{url}" style="background:{BRAND};color:#fff;'
+                  f'padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">'
+                  f'Ouvrir dans la plateforme</a></p>')
+    return (
+        '<!DOCTYPE html><html><body style="margin:0;background:#f6f7fb;font-family:Arial,sans-serif;color:#1f2937">'
+        '<div style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;padding:28px;'
+        'border:1px solid #e5e7eb">'
+        f'<div style="font-weight:700;color:{BRAND};margin-bottom:16px">{html.escape(settings.APP_NAME)}</div>'
+        f'<h2 style="font-size:18px;margin:0 0 12px">{t}</h2>'
+        f'<p style="line-height:1.6;margin:0">{m}</p>{bouton}'
+        '<p style="font-size:12px;color:#6b7280;margin-top:24px">Message automatique — ne pas répondre.</p>'
+        '</div></body></html>'
+    )
+
+
+def send(to_email: str, to_name: str, subject: str, html_body: str) -> str:
+    """Retourne le statut : envoye | echec | non_configure."""
+    if not settings.brevo_configured:
+        return "non_configure"
     try:
-        msg = MIMEMultipart("alternative")
-        msg["From"] = f"{APP_NAME} <{settings.EMAIL_FROM or settings.SMTP_USER}>"
-        msg["To"] = to
-        msg["Subject"] = subject
-        msg.attach(MIMEText(body_html, "html", "utf-8"))
-        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT or 587) as srv:
-            srv.ehlo()
-            srv.starttls()
-            srv.login(settings.SMTP_USER, settings.SMTP_PASSWORD or "")
-            srv.sendmail(msg["From"], to, msg.as_string())
-        logger.info(f"[EMAIL SENT] To={to} | Subject={subject}")
-    except Exception as exc:
-        logger.warning(f"[EMAIL FAILED] To={to} | {exc}")
-
-
-def _async(to: str, subject: str, body_html: str) -> None:
-    """Envoie en arrière-plan (non bloquant)."""
-    threading.Thread(target=_send, args=(to, subject, body_html), daemon=True).start()
-
-
-def _wrap(content: str) -> str:
-    return f"""<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;color:#111;margin:0;padding:0">
-<div style="max-width:600px;margin:32px auto;padding:24px;border:1px solid #e5e7eb;border-radius:8px">
-  <div style="border-bottom:3px solid {BRAND_COLOR};padding-bottom:12px;margin-bottom:20px">
-    <strong style="color:{BRAND_COLOR};font-size:16px">{APP_NAME}</strong>
-  </div>
-  {content}
-  <div style="margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:11px;color:#999">
-    Message automatique — ne pas répondre directement à cet email.
-  </div>
-</div></body></html>"""
-
-
-# ── Templates ──────────────────────────────────────────────────────────────
-
-def send_affectation_prestataire(to: str, presta_nom: str, dossier_ref: str,
-                                  role: str, date_limite: str) -> None:
-    role_label = "retranscription" if role == "retranscripteur" else "correction"
-    body = _wrap(f"""
-      <h2 style="margin:0 0 16px">Nouvelle mission — {dossier_ref}</h2>
-      <p>Bonjour {presta_nom},</p>
-      <p>Une nouvelle mission de <strong>{role_label}</strong> vous a été attribuée.</p>
-      <table style="width:100%;font-size:14px;margin:16px 0">
-        <tr><td style="color:#666;padding:4px 0">Dossier</td><td><strong>{dossier_ref}</strong></td></tr>
-        <tr><td style="color:#666;padding:4px 0">Mission</td><td>{role_label.capitalize()}</td></tr>
-        <tr><td style="color:#666;padding:4px 0">Date limite</td><td><strong>{date_limite}</strong></td></tr>
-      </table>
-      <p>Connectez-vous à l'application pour consulter le dossier et marquer votre travail comme terminé une fois livré.</p>
-    """)
-    _async(to, f"[{APP_NAME}] Nouvelle mission — {dossier_ref}", body)
-
-
-def send_retranscription_livree(to: str, correcteur_nom: str, dossier_ref: str) -> None:
-    body = _wrap(f"""
-      <h2 style="margin:0 0 16px">Retranscription livrée — {dossier_ref}</h2>
-      <p>Bonjour {correcteur_nom},</p>
-      <p>La retranscription du dossier <strong>{dossier_ref}</strong> a été livrée.
-         Ce dossier est maintenant disponible pour la correction.</p>
-      <p>Connectez-vous à l'application pour accéder au dossier.</p>
-    """)
-    _async(to, f"[{APP_NAME}] Retranscription prête — {dossier_ref}", body)
-
-
-def send_correction_livree(to: str, dossier_ref: str) -> None:
-    body = _wrap(f"""
-      <h2 style="margin:0 0 16px">Correction livrée — {dossier_ref}</h2>
-      <p>La correction du dossier <strong>{dossier_ref}</strong> a été livrée par le correcteur.</p>
-      <p>Le dossier est prêt pour relecture et envoi au client. Connectez-vous pour valider et générer la facture.</p>
-    """)
-    _async(to, f"[{APP_NAME}] Dossier prêt à envoyer — {dossier_ref}", body)
-
-
-def send_depot_audio_client(
-    to: str,
-    client_nom: str,
-    client_email: str,
-    dossier_ref: str,
-    nom_fichier: str,
-    taille_ko: float,
-    commentaire: str,
-) -> None:
-    """Notification admin : un client a déposé un fichier audio."""
-    taille_str = f"{taille_ko:.0f} Ko" if taille_ko < 1024 else f"{taille_ko / 1024:.1f} Mo"
-    comment_row = (
-        f"<tr><td style='color:#666;padding:4px 0'>Message</td><td><em>{commentaire}</em></td></tr>"
-        if commentaire else ""
-    )
-    body = _wrap(f"""
-      <h2 style="margin:0 0 16px">🎙 Nouveau fichier audio reçu — {dossier_ref}</h2>
-      <p>Un client vient de déposer un fichier audio.</p>
-      <table style="width:100%;font-size:14px;margin:16px 0">
-        <tr><td style="color:#666;padding:4px 0">Client</td><td><strong>{client_nom}</strong> ({client_email})</td></tr>
-        <tr><td style="color:#666;padding:4px 0">Dossier</td><td><strong>{dossier_ref}</strong></td></tr>
-        <tr><td style="color:#666;padding:4px 0">Fichier</td><td><code>{nom_fichier}</code></td></tr>
-        <tr><td style="color:#666;padding:4px 0">Taille</td><td>{taille_str}</td></tr>
-        {comment_row}
-      </table>
-      <p>Connectez-vous au dashboard pour consulter le dépôt et lancer la retranscription.</p>
-    """)
-    _async(to, f"[A2C] Audio reçu — {dossier_ref}", body)
-
-
-def send_depot_prestataire(
-    to: str,
-    presta_nom: str,
-    presta_email: str,
-    dossier_ref: str,
-    nom_fichier: str,
-    type_doc: str,
-    version: str,
-    commentaire: str,
-) -> None:
-    """Notification admin : un prestataire a déposé un fichier de travail."""
-    label_map = {
-        "retranscription_v1":       "Retranscription (v1)",
-        "retranscription_corrigee": "Retranscription corrigée",
-        "autre": "Document divers",
-    }
-    label = label_map.get(type_doc, type_doc)
-    comment_row = (
-        f"<tr><td style='color:#666;padding:4px 0'>Commentaire</td><td><em>{commentaire}</em></td></tr>"
-        if commentaire else ""
-    )
-    body = _wrap(f"""
-      <h2 style="margin:0 0 16px">📎 Nouveau dépôt — {dossier_ref}</h2>
-      <p>Un prestataire vient de déposer un fichier sur le dossier <strong>{dossier_ref}</strong>.</p>
-      <table style="width:100%;font-size:14px;margin:16px 0">
-        <tr><td style="color:#666;padding:4px 0">Prestataire</td><td><strong>{presta_nom}</strong> ({presta_email})</td></tr>
-        <tr><td style="color:#666;padding:4px 0">Type</td><td>{label}</td></tr>
-        <tr><td style="color:#666;padding:4px 0">Fichier</td><td><code>{nom_fichier}</code></td></tr>
-        <tr><td style="color:#666;padding:4px 0">Version</td><td>{version}</td></tr>
-        {comment_row}
-      </table>
-      <p>Connectez-vous au dashboard pour consulter et valider le dépôt.</p>
-    """)
-    _async(to, f"[A2C] Dépôt reçu — {dossier_ref}", body)
-
-
-def send_facture_client(to: str, client_nom: str, dossier_ref: str,
-                         numero_facture: str, montant_ttc: str, date_echeance: str) -> None:
-    body = _wrap(f"""
-      <h2 style="margin:0 0 16px">Facture {numero_facture}</h2>
-      <p>Bonjour {client_nom},</p>
-      <p>Votre facture pour le dossier <strong>{dossier_ref}</strong> est disponible.</p>
-      <table style="width:100%;font-size:14px;margin:16px 0">
-        <tr><td style="color:#666;padding:4px 0">Numéro</td><td><strong>{numero_facture}</strong></td></tr>
-        <tr><td style="color:#666;padding:4px 0">Montant TTC</td><td><strong>{montant_ttc} €</strong></td></tr>
-        <tr><td style="color:#666;padding:4px 0">Échéance</td><td>{date_echeance}</td></tr>
-      </table>
-    """)
-    _async(to, f"[{APP_NAME}] Facture {numero_facture} — {dossier_ref}", body)
+        resp = httpx.post(
+            BREVO_URL,
+            headers={"api-key": settings.BREVO_API_KEY, "accept": "application/json",
+                     "content-type": "application/json"},
+            json={
+                "sender": {"email": settings.BREVO_SENDER_EMAIL, "name": settings.BREVO_SENDER_NAME},
+                "to": [{"email": to_email, "name": to_name[:100]}],
+                "subject": subject[:200],
+                "htmlContent": html_body,
+            },
+            timeout=15,
+        )
+    except httpx.HTTPError as exc:
+        logger.warning("[EMAIL] Brevo injoignable (%s)", type(exc).__name__)
+        return "echec"
+    if resp.status_code in (200, 201, 202):
+        return "envoye"
+    logger.warning("[EMAIL] Brevo a refusé l'envoi (HTTP %s)", resp.status_code)  # fix: ni destinataire ni clé en log
+    return "echec"

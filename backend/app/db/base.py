@@ -18,3 +18,7 @@ from app.models.incident import IncidentQualite  # noqa — references Dossier, 
 from app.models.facture import FactureClient  # noqa — references Dossier, Client, CalculTarifaire
 from app.models.paiement import PaiementPrestataire  # noqa — references Affectation, Dossier, Prestataire
 from app.models.fichier import FichierDossier  # noqa — references Dossier, User
+from app.models.refonte import (  # noqa — tables ajoutées par la refonte
+    StoredBlob, AudioSource, Livraison, DemandeCorrection, Encaissement, Notification, GraphSyncState,
+    RegleDelai, Parametre,
+)

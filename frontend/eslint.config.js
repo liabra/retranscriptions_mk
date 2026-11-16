@@ -20,4 +20,9 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    // Module de configuration du routeur (pages chargées à la demande) : pas de rechargement à chaud requis
+    files: ['src/routes/**/*.tsx', 'src/test/**/*.tsx'],
+    rules: { 'react-refresh/only-export-components': 'off' },
+  },
 ])

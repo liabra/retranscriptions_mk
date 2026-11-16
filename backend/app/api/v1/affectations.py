@@ -1,254 +1,129 @@
+"""
+Attribution des missions — toujours décidée par une responsable (aucune attribution automatique).
+"""
 import uuid
-from datetime import datetime, timezone, timedelta
-from decimal import Decimal
-from typing import List
+from datetime import datetime
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
-from app.core.config import settings
-from app.core.deps import DbDep, CurrentUser, require_admin_or_coordinator
+from app.api.v1.common import get_dossier, AFF_ACTIVES
+from app.core.deps import DbDep, require_permission
 from app.models.affectation import Affectation, RoleAffectationEnum, StatutAffectationEnum
-from app.models.dossier import Dossier, StatutDossierEnum
-from app.models.prestataire import Prestataire
-from app.models.user import User, RoleEnum
-from app.schemas.affectation import AffectationCreate, AffectationUpdate, AffectationOut, AffectationWithDossierOut
-from app.services import email as email_svc
-from app.services.calcul_service import run_calcul
-from app.services.journal import log_action
 from app.models.journal import TypeActionEnum
+from app.models.prestataire import Prestataire, RolePrestaEnum
+from app.models.user import User
+from app.services import delais, workflow as wf
+from app.services.attribution import suggestions, charge_reelle
+from app.services.journal import log_action
+from app.services.notifications import notifier, compte_prestataire
 
 router = APIRouter()
 
 
-def _get_dossier_or_404(dossier_id: uuid.UUID, db) -> Dossier:
-    dossier = db.query(Dossier).filter(Dossier.id == dossier_id).first()
-    if not dossier:
-        raise HTTPException(status_code=404, detail="Dossier introuvable")
-    return dossier
+class AttributionCreate(BaseModel):
+    prestataire_id: uuid.UUID
+    date_limite_rendu: Optional[datetime] = None
+    commentaire: Optional[str] = Field(default=None, max_length=2000)  # consignes visibles du prestataire
+    confirmer_indisponible: bool = False
 
 
-def _find_prestataire_by_user(user: User, db) -> "Prestataire | None":
-    """Trouve le prestataire correspondant à l'utilisateur par email."""
-    return db.query(Prestataire).filter(Prestataire.email == user.email).first()
+class AttributionUpdate(BaseModel):
+    date_limite_rendu: Optional[datetime] = None
+    commentaire: Optional[str] = Field(default=None, max_length=2000)
 
 
-def _date_limite_from_audio(duree_minutes: "int | None") -> "datetime | None":
-    """Calcule la date limite de rendu selon la durée audio A2C."""
-    if not duree_minutes:
-        return None
-    if duree_minutes <= 60:
-        jours = 7
-    elif duree_minutes <= 240:
-        jours = 18
-    else:
-        jours = 25
-    return datetime.now(timezone.utc) + timedelta(days=jours)
+class Retrait(BaseModel):
+    motif: str = Field(min_length=3, max_length=1000)
 
 
-def _auto_transition_dossier(dossier: Dossier, new_statut: StatutDossierEnum, db, user: User, reason: str):
-    """Transition automatique du dossier déclenchée par un événement métier."""
-    old = dossier.statut
-    dossier.statut = new_statut
-    log_action(
-        db, TypeActionEnum.STATUT,
-        dossier_id=dossier.id,
-        utilisateur_id=user.id,
-        detail={"action": "auto_transition", "de": old.value, "vers": new_statut.value, "raison": reason},
-    )
+@router.get("/dossiers/{dossier_id}/suggestions")
+def suggerer(dossier_id: uuid.UUID, db: DbDep, _u: User = Depends(require_permission("attribution.gerer"))):
+    d = get_dossier(db, dossier_id)
+    return {"dossier_id": str(d.id), "type_instance": d.type_instance.value,
+            "avertissement": "Suggestions indicatives : la décision appartient à la responsable.",
+            "suggestions": suggestions(db, d)}
 
 
-@router.get("/mes-affectations", response_model=List[AffectationWithDossierOut])
-def mes_affectations(db: DbDep, current_user: CurrentUser):
-    """Retourne les affectations actives du prestataire connecté, avec info dossier."""
-    presta = _find_prestataire_by_user(current_user, db)
-    if not presta:
-        return []
-    return (
-        db.query(Affectation)
-        .filter(
-            Affectation.prestataire_id == presta.id,
-            Affectation.statut.notin_([StatutAffectationEnum.REJETE]),
-        )
-        .all()
-    )
-
-
-@router.get("/dossiers/{dossier_id}/affectations", response_model=List[AffectationOut])
-def list_affectations(dossier_id: uuid.UUID, db: DbDep, current_user: CurrentUser):
-    _get_dossier_or_404(dossier_id, db)
-    return db.query(Affectation).filter(Affectation.dossier_id == dossier_id).all()
-
-
-@router.post("/dossiers/{dossier_id}/affectations", response_model=AffectationOut, status_code=201)
-def create_affectation(
-    dossier_id: uuid.UUID,
-    payload: AffectationCreate,
-    db: DbDep,
-    _user: User = Depends(require_admin_or_coordinator),
-    current_user: CurrentUser = None,
-):
-    dossier = _get_dossier_or_404(dossier_id, db)
-
+@router.post("/dossiers/{dossier_id}/affectations", status_code=201)
+def attribuer(dossier_id: uuid.UUID, payload: AttributionCreate, db: DbDep,
+              user: User = Depends(require_permission("attribution.gerer"))):
+    d = get_dossier(db, dossier_id, lock=True)
+    if d.statut_production != wf.A_ATTRIBUER:
+        raise HTTPException(status_code=409, detail="Le dossier doit être qualifié et « à attribuer »")
     presta = db.query(Prestataire).filter(Prestataire.id == payload.prestataire_id).first()
-    if not presta:
-        raise HTTPException(status_code=404, detail="Prestataire introuvable")
-    if not presta.actif:
-        raise HTTPException(status_code=400, detail="Ce prestataire est inactif")
-    if not presta.disponible:
-        raise HTTPException(status_code=400, detail="Ce prestataire est indisponible")
-
-    existing_roles = db.query(Affectation).filter(
-        Affectation.dossier_id == dossier_id,
-        Affectation.prestataire_id == payload.prestataire_id,
-        Affectation.statut != StatutAffectationEnum.REJETE,
-    ).all()
-    if existing_roles:
-        raise HTTPException(status_code=400, detail="Ce prestataire est déjà affecté à ce dossier")
-
-    existing_role = db.query(Affectation).filter(
-        Affectation.dossier_id == dossier_id,
-        Affectation.type_role == payload.type_role,
-        Affectation.statut != StatutAffectationEnum.REJETE,
-    ).first()
-    if existing_role:
-        raise HTTPException(status_code=400, detail=f"Un {payload.type_role.value} est déjà affecté à ce dossier")
-
-    # Date limite auto depuis durée audio si non fournie
-    date_limite = payload.date_limite_rendu
-    if not date_limite:
-        date_limite = _date_limite_from_audio(dossier.duree_audio_minutes)
-
-    affectation = Affectation(
-        dossier_id=dossier_id,
-        prestataire_id=payload.prestataire_id,
-        type_role=payload.type_role,
-        date_limite_rendu=date_limite,
-        commentaire=payload.commentaire,
-        statut=StatutAffectationEnum.EN_COURS,  # Directement EN_COURS, pas EN_ATTENTE
+    if not presta or not presta.actif or presta.role == RolePrestaEnum.CORRECTEUR:
+        raise HTTPException(status_code=400, detail="Retranscripteur introuvable ou inactif")
+    if not presta.disponible and not payload.confirmer_indisponible:
+        raise HTTPException(status_code=409, detail="Ce retranscripteur est indiqué indisponible : confirmez l'attribution")
+    if db.query(Affectation).filter(Affectation.dossier_id == d.id, Affectation.statut.in_(AFF_ACTIVES)).first():
+        raise HTTPException(status_code=409, detail="Une attribution est déjà active sur ce dossier")
+    echeance = payload.date_limite_rendu or delais.echeance_retranscripteur(db, d.date_limite)
+    aff = Affectation(
+        dossier_id=d.id, prestataire_id=presta.id, type_role=RoleAffectationEnum.RETRANSCRIPTEUR,
+        date_limite_rendu=echeance, commentaire=payload.commentaire, statut=StatutAffectationEnum.EN_ATTENTE,
     )
-    db.add(affectation)
-    presta.charge_actuelle += 1
-
-    if dossier.statut == StatutDossierEnum.A_ATTRIBUER:
-        roles_apres = db.query(Affectation).filter(
-            Affectation.dossier_id == dossier_id,
-            Affectation.statut != StatutAffectationEnum.REJETE,
-        ).count()
-        if roles_apres + 1 >= 2:
-            _auto_transition_dossier(dossier, StatutDossierEnum.EN_RETRANSCRIPTION, db, _user, "2 prestataires affectés")
-    elif dossier.statut in (StatutDossierEnum.ESTIME, StatutDossierEnum.RECU, StatutDossierEnum.EN_QUALIFICATION):
-        dossier.statut = StatutDossierEnum.A_ATTRIBUER
-
+    db.add(aff)
     db.flush()
-    log_action(
-        db, TypeActionEnum.AFFECTATION,
-        dossier_id=dossier_id,
-        utilisateur_id=_user.id,
-        detail={"action": "affectation", "prestataire_id": str(payload.prestataire_id), "role": payload.type_role.value},
-    )
+    wf.changer_production(db, d, wf.ATTRIBUE, user.id, extra={"prestataire_id": str(presta.id)})
+    delais.figer(db, d, user.id)  # l'échéance client devient définitive (historisée)
+    db.flush()
+    presta.charge_actuelle = charge_reelle(db, presta.id)  # fix B7 : charge recalculée
+    log_action(db, TypeActionEnum.AFFECTATION, dossier_id=d.id, utilisateur_id=user.id,
+               detail={"action": "attribution", "prestataire_id": str(presta.id), "affectation_id": str(aff.id),
+                       "echeance_retranscripteur": echeance.isoformat() if echeance else None,
+                       "echeance_client": d.date_limite.isoformat() if d.date_limite else None})
+    notifier(db, compte_prestataire(db, presta.id), "mission_attribuee",
+             f"Nouvelle mission : {d.reference}",
+             "Une nouvelle retranscription vous a été attribuée"
+             + (f" (échéance le {echeance:%d/%m/%Y})." if echeance else "."),
+             lien="/mes-missions", dossier_id=d.id, dedup_key=f"attribution:{aff.id}")
     db.commit()
-    db.refresh(affectation)
-
-    # Email de notification au prestataire
-    date_str = date_limite.strftime("%d/%m/%Y") if date_limite else "non définie"
-    email_svc.send_affectation_prestataire(
-        to=presta.email,
-        presta_nom=presta.nom,
-        dossier_ref=dossier.reference,
-        role=payload.type_role.value,
-        date_limite=date_str,
-    )
-
-    return affectation
+    return {"id": str(aff.id), "statut": aff.statut.value, "date_limite_rendu": aff.date_limite_rendu}
 
 
-@router.patch("/affectations/{affectation_id}", response_model=AffectationOut)
-def update_affectation(
-    affectation_id: uuid.UUID,
-    payload: AffectationUpdate,
-    db: DbDep,
-    current_user: CurrentUser,
-):
-    affectation = db.query(Affectation).filter(Affectation.id == affectation_id).first()
-    if not affectation:
-        raise HTTPException(status_code=404, detail="Affectation introuvable")
-
-    is_admin_or_coord = current_user.role in (RoleEnum.ADMINISTRATRICE, RoleEnum.COORDINATRICE)
-    if not is_admin_or_coord:
-        # Prestataire ne peut modifier que sa propre affectation, uniquement vers LIVRE
-        presta = _find_prestataire_by_user(current_user, db)
-        if not presta or presta.id != affectation.prestataire_id:
-            raise HTTPException(status_code=403, detail="Accès refusé")
-        if payload.statut and payload.statut != StatutAffectationEnum.LIVRE:
-            raise HTTPException(status_code=403, detail="Vous pouvez uniquement marquer votre travail comme livré")
-
-    ancien_statut = affectation.statut
-
-    for field, value in payload.model_dump(exclude_unset=True).items():
-        setattr(affectation, field, value)
-
-    if payload.statut == StatutAffectationEnum.REJETE and ancien_statut != StatutAffectationEnum.REJETE:
-        presta = db.query(Prestataire).filter(Prestataire.id == affectation.prestataire_id).first()
-        if presta and presta.charge_actuelle > 0:
-            presta.charge_actuelle -= 1
-
-    # Auto-transitions dossier + emails + auto-calcul selon événement affectation
-    if payload.statut and payload.statut != ancien_statut:
-        dossier = db.query(Dossier).filter(Dossier.id == affectation.dossier_id).first()
-        if dossier:
-            if (affectation.type_role == RoleAffectationEnum.RETRANSCRIPTEUR
-                    and payload.statut == StatutAffectationEnum.LIVRE
-                    and dossier.statut == StatutDossierEnum.EN_RETRANSCRIPTION):
-                _auto_transition_dossier(dossier, StatutDossierEnum.A_CORRIGER, db, current_user, "retranscripteur a livré")
-                # Notifier le correcteur
-                correct_aff = db.query(Affectation).filter(
-                    Affectation.dossier_id == dossier.id,
-                    Affectation.type_role == RoleAffectationEnum.CORRECTEUR,
-                    Affectation.statut != StatutAffectationEnum.REJETE,
-                ).first()
-                if correct_aff:
-                    presta_correct = db.query(Prestataire).filter(
-                        Prestataire.id == correct_aff.prestataire_id
-                    ).first()
-                    if presta_correct:
-                        email_svc.send_retranscription_livree(
-                            to=presta_correct.email,
-                            correcteur_nom=presta_correct.nom,
-                            dossier_ref=dossier.reference,
-                        )
-
-            elif (affectation.type_role == RoleAffectationEnum.CORRECTEUR
-                    and payload.statut == StatutAffectationEnum.EN_COURS
-                    and dossier.statut == StatutDossierEnum.A_CORRIGER):
-                _auto_transition_dossier(dossier, StatutDossierEnum.EN_CORRECTION, db, current_user, "correcteur a commencé")
-
-            elif (affectation.type_role == RoleAffectationEnum.CORRECTEUR
-                    and payload.statut == StatutAffectationEnum.LIVRE
-                    and dossier.statut in (StatutDossierEnum.EN_CORRECTION, StatutDossierEnum.A_CORRIGER)):
-                _auto_transition_dossier(dossier, StatutDossierEnum.EN_MISE_EN_FORME, db, current_user, "correcteur a livré")
-                # Notifier l'admin
-                if settings.ADMIN_EMAIL:
-                    email_svc.send_correction_livree(
-                        to=settings.ADMIN_EMAIL,
-                        dossier_ref=dossier.reference,
-                    )
-                # Auto-calcul si nombre_pages_final connu
-                if dossier.nombre_pages_final:
-                    try:
-                        run_calcul(dossier, Decimal(str(dossier.nombre_pages_final)), current_user.id, db)
-                    except Exception:
-                        pass  # Ne pas bloquer la livraison si calcul échoue
-
-    log_action(
-        db, TypeActionEnum.AFFECTATION,
-        dossier_id=affectation.dossier_id,
-        utilisateur_id=current_user.id,
-        detail={
-            "action": "mise_a_jour_affectation",
-            "affectation_id": str(affectation_id),
-            "changements": payload.model_dump(exclude_unset=True, mode="json"),
-        },
-    )
+@router.patch("/affectations/{affectation_id}")
+def modifier(affectation_id: uuid.UUID, payload: AttributionUpdate, db: DbDep,
+             user: User = Depends(require_permission("attribution.gerer"))):
+    """fix S6 : seules les responsables modifient échéance et consignes."""
+    aff = db.query(Affectation).filter(Affectation.id == affectation_id).first()
+    if not aff or aff.statut not in AFF_ACTIVES:
+        raise HTTPException(status_code=404, detail="Attribution active introuvable")
+    changes = payload.model_dump(exclude_unset=True)
+    for k, v in changes.items():
+        setattr(aff, k, v)
+    log_action(db, TypeActionEnum.AFFECTATION, dossier_id=aff.dossier_id, utilisateur_id=user.id,
+               detail={"action": "modification_attribution", "affectation_id": str(aff.id),
+                       "changements": {k: str(v) for k, v in changes.items()}})
+    if "date_limite_rendu" in changes:
+        notifier(db, compte_prestataire(db, aff.prestataire_id), "echeance_modifiee",
+                 "Échéance modifiée",
+                 f"Nouvelle échéance : {aff.date_limite_rendu:%d/%m/%Y}" if aff.date_limite_rendu else None,
+                 lien="/mes-missions", dossier_id=aff.dossier_id)
     db.commit()
-    db.refresh(affectation)
-    return affectation
+    return {"id": str(aff.id), "date_limite_rendu": aff.date_limite_rendu, "commentaire": aff.commentaire}
+
+
+@router.post("/affectations/{affectation_id}/retirer")
+def retirer(affectation_id: uuid.UUID, payload: Retrait, db: DbDep,
+            user: User = Depends(require_permission("attribution.gerer"))):
+    aff = db.query(Affectation).filter(Affectation.id == affectation_id).first()
+    if not aff or aff.statut not in AFF_ACTIVES:
+        raise HTTPException(status_code=404, detail="Attribution active introuvable")
+    d = get_dossier(db, aff.dossier_id, lock=True)
+    if d.statut_production not in (wf.ATTRIBUE, wf.EN_COURS, wf.CORRECTION_DEMANDEE):
+        raise HTTPException(status_code=409, detail="Le retrait n'est possible que pendant la production")
+    aff.statut = StatutAffectationEnum.REJETE
+    wf.changer_production(db, d, wf.A_ATTRIBUER, user.id, payload.motif)
+    presta = db.query(Prestataire).filter(Prestataire.id == aff.prestataire_id).first()
+    if presta:
+        db.flush()
+        presta.charge_actuelle = charge_reelle(db, presta.id)
+    log_action(db, TypeActionEnum.AFFECTATION, dossier_id=d.id, utilisateur_id=user.id,
+               detail={"action": "retrait_attribution", "affectation_id": str(aff.id), "motif": payload.motif})
+    notifier(db, compte_prestataire(db, aff.prestataire_id), "mission_retiree",
+             f"Mission {d.reference} retirée", "Cette mission ne vous est plus attribuée.",
+             lien="/mes-missions", dossier_id=d.id)
+    db.commit()
+    return {"id": str(aff.id), "statut": aff.statut.value}

@@ -1,10 +1,10 @@
 from typing import Optional
 import uuid
 from enum import Enum as PyEnum
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import String, Boolean, Numeric, Date, Enum, ForeignKey
+from sqlalchemy import String, Boolean, Numeric, Date, DateTime, Text, Enum, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -46,7 +46,13 @@ class FactureClient(Base):
         Enum(StatutPaiementEnum), default=StatutPaiementEnum.NON_PAYEE, nullable=False
     )
 
+    # Refonte (migration 0005) — une facture n'est jamais supprimée : elle est annulée
+    montant_encaisse: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0.00"), nullable=False)
+    annulee_le: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    motif_annulation: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     # Relations
+    encaissements = relationship("Encaissement", back_populates="facture", lazy="dynamic")
     dossier = relationship("Dossier", foreign_keys=[dossier_id])
     payeur = relationship("Client", foreign_keys=[payeur_id])
     calcul_tarifaire = relationship("CalculTarifaire", foreign_keys=[calcul_tarifaire_id])
