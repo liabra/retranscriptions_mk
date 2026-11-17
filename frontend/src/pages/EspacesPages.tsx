@@ -28,7 +28,7 @@ export function MesMissionsPage() {
           <p>{vue === 'cours' ? `${data?.length ?? 0} mission(s) en cours${enRetard ? ` · ${enRetard} en retard` : ''}` : 'Vos missions validées'}</p>
         </div>
       </div>
-      <Tabs value={vue} onChange={setVue} items={[{ key: 'cours', label: 'En cours' }, { key: 'terminees', label: 'Terminées' }]} />
+      <div data-tour="missions-onglets"><Tabs value={vue} onChange={setVue} items={[{ key: 'cours', label: 'En cours' }, { key: 'terminees', label: 'Terminées' }]} /></div>
       <ErrorBox error={error} />
       {loading && !data ? <PageLoader /> : !data?.length ? (
         <div className="card"><Empty icon={<ClipboardList size={24} />} title={vue === 'cours' ? 'Aucune mission en cours' : 'Aucune mission terminée'}>
@@ -69,7 +69,7 @@ function MissionCard({ m, onChange, onReload }: { m: Mission; onChange: (m: Miss
   }
 
   return (
-    <article className="card">
+    <article className="card" data-tour="mission-carte">
       <div className="mission">
         <div className="mission-top">
           <div>

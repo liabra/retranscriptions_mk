@@ -22,11 +22,11 @@ export function FinancePage() {
           <p>Factures clients, encaissements et rémunération des retranscripteurs — trois suivis distincts de la production.</p>
         </div>
       </div>
-      <Tabs value={vue} onChange={setVue} items={[
+      <div data-tour="finance-onglets"><Tabs value={vue} onChange={setVue} items={[
         { key: 'a_etablir', label: 'Factures à établir' }, { key: 'attente', label: 'En attente de règlement' },
         { key: 'reglees', label: 'Réglées' }, { key: 'paiements', label: 'Paiements à effectuer' },
         { key: 'paiements_effectues', label: 'Paiements effectués' },
-      ]} />
+      ]} /></div>
       {vue === 'a_etablir' && <AFacturer />}
       {(vue === 'attente' || vue === 'reglees') && <Factures vue={vue} />}
       {vue === 'paiements' && <Paiements vue="a_effectuer" />}

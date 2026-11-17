@@ -238,3 +238,10 @@ Désactivée par défaut (nouvelles installations et migration 0007 des bases ex
 | Temps de relecture avant l'échéance client | 0 jour (le retranscripteur rend à l'échéance client) | Idem |
 | Majoration d'urgence | Désactivée | Majorations |
 | Barème client de l'année suivante | À saisir | Tarifs clients → « Barème {année} » |
+
+## 12. Guide de prise en main interactif (dans la plateforme)
+
+- **Visite guidée** : bulles de conseil qui mettent en évidence les éléments réels de l'écran et changent de page toute seule (tableau de bord, audios, dossiers, facturation, tarifs, retranscripteurs, utilisateurs). Trois versions selon le profil : responsables (13 étapes, filtrées par droits), fiche dossier (« Guide de cette page »), retranscripteurs (4 étapes). Navigation par boutons ou flèches du clavier, Échap pour quitter, adaptée au mobile.
+- **Lancement** : automatique une seule fois à la première connexion de chaque compte (mémorisé dans le navigateur), puis à volonté depuis la page Aide.
+- **Parcours de démonstration** (`/aide/parcours`, responsables) : un PV fictif (« Plénière de novembre ») suivi en 9 étapes, de la réception de l'audio au règlement de la facture, avec écrans simulés, action à cliquer à chaque étape, conseils, et un contrôle de conformité volontairement raté puis corrigé. Entièrement simulé : aucune donnée enregistrée, aucun risque pour les vraies données.
+- Fichiers : `frontend/src/components/tour/` (moteur et contenu des visites, modifiables dans `tours.ts`), `frontend/src/pages/DemoPage.tsx`. Tests : `src/test/tour.test.tsx` (21 tests frontend au total).

@@ -104,7 +104,7 @@ export function RetranscripteursPage() {
     <div className="page">
       <div className="page-head">
         <div><h1>Retranscripteurs</h1><p>Disponibilités, charge et indicateurs internes (jamais visibles des retranscripteurs).</p></div>
-        {can('prestataires.gerer') && <button className="btn btn-primary" onClick={() => setEdit('new')}><Plus size={18} />Nouveau retranscripteur</button>}
+        {can('prestataires.gerer') && <button className="btn btn-primary" data-tour="retranscripteurs-nouveau" onClick={() => setEdit('new')}><Plus size={18} />Nouveau retranscripteur</button>}
       </div>
       <ErrorBox error={error ?? action.error} />
       <div className="card">

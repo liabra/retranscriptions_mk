@@ -7,6 +7,9 @@ import {
 import { useAuth } from '@/lib/session'
 import { api, type Notif } from '@/lib/api'
 import { fDateTime, initials, ROLES } from '@/lib/format'
+import { TourProvider } from '@/components/tour/TourProvider'
+import { guideVu, marquerGuideVu, useTour } from '@/components/tour/context'
+import { tourPourRole } from '@/components/tour/tours'
 
 interface NavItem { to: string; label: string; icon: LucideIcon; perm?: string; any?: string[] }
 
@@ -36,7 +39,12 @@ const PRESTATAIRE: NavItem[] = [
 const CLIENT: NavItem[] = [{ to: '/mon-espace', label: 'Mon espace', icon: Upload }]
 
 export function Layout() {
+  return <TourProvider><LayoutInner /></TourProvider>
+}
+
+function LayoutInner() {
   const { user, can, isPrestataire, isClient, logout } = useAuth()
+  const { start } = useTour()
   const [scrolled, setScrolled] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
@@ -49,6 +57,16 @@ export function Layout() {
     window.addEventListener('scroll', onScroll)
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
+
+  // Première connexion : proposition automatique de la visite (une seule fois par compte)
+  useEffect(() => {
+    if (!user || user.must_change_password) return
+    const id = tourPourRole(isPrestataire, isClient)
+    if (id && !guideVu(user.id)) {
+      const t = window.setTimeout(() => { marquerGuideVu(user.id); start(id) }, 800)  // « vu » seulement au démarrage effectif
+      return () => window.clearTimeout(t)
+    }
+  }, [user, isPrestataire, isClient, start])
 
   const visible = (i: NavItem) => (!i.perm || can(i.perm)) && (!i.any || i.any.some(can))
   const groups = isPrestataire ? [{ group: 'Mon travail', items: PRESTATAIRE }]
@@ -142,7 +160,7 @@ function Notifications() {
   }
 
   return (
-    <div className="bell" ref={ref} style={{ position: 'relative' }}>
+    <div className="bell" ref={ref} style={{ position: 'relative' }} data-tour="notifications">
       <button className="btn btn-ghost btn-icon" aria-label={`Notifications${data?.non_lues ? ` (${data.non_lues} non lues)` : ''}`}
         onClick={() => { setOpen(!open); if (!open) load() }}>
         <Bell size={20} />

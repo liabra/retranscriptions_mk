@@ -23,11 +23,11 @@ export function TarifsPage() {
           <p>Barèmes, rémunérations, majorations et délais. Chaque modification crée une nouvelle version datée : rien n'est jamais modifié rétroactivement.</p>
         </div>
       </div>
-      <Tabs value={onglet} onChange={(o) => setParams({ onglet: o })} items={[
+      <div data-tour="tarifs-onglets"><Tabs value={onglet} onChange={(o) => setParams({ onglet: o })} items={[
         { key: 'client', label: 'Tarifs clients' }, { key: 'retranscripteur', label: 'Rémunération des retranscripteurs' },
         { key: 'majorations', label: 'Majorations' }, { key: 'delais', label: 'Délais de réalisation' },
         { key: 'simulateur', label: 'Simulateur' },
-      ]} />
+      ]} /></div>
       {(onglet === 'client' || onglet === 'retranscripteur') && <Grilles usage={onglet} />}
       {onglet === 'majorations' && <Majorations />}
       {onglet === 'delais' && <Delais />}

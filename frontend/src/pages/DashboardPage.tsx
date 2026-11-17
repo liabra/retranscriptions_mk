@@ -75,13 +75,13 @@ export function DashboardPage() {
       {dash.loading && !dash.data ? <PageLoader /> : dash.data && (
         <>
           {Object.keys(dash.data.production).length > 0 && (
-            <section className="stack">
+            <section className="stack" data-tour="kpi-production">
               <h2 className="section-title">Production</h2>
               <Tiles tiles={PRODUCTION} values={dash.data.production} />
             </section>
           )}
           {dash.data.finance && (
-            <section className="stack">
+            <section className="stack" data-tour="kpi-finance">
               <h2 className="section-title">Facturation & règlements</h2>
               <Tiles tiles={FINANCE} values={dash.data.finance} />
             </section>

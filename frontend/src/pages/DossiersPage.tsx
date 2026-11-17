@@ -117,11 +117,11 @@ export function DossiersPage() {
           <p>Suivi de toutes les retranscriptions, de la réception de l'audio à la validation du PV.</p>
         </div>
         {can('dossiers.gerer') && (
-          <button className="btn btn-primary" onClick={() => setCreer(true)}><Plus size={18} />Nouveau dossier</button>
+          <button className="btn btn-primary" data-tour="dossier-nouveau" onClick={() => setCreer(true)}><Plus size={18} />Nouveau dossier</button>
         )}
       </div>
 
-      <div className="stack">
+      <div className="stack" data-tour="dossiers-filtres">
         <div className="chips" role="group" aria-label="Filtrer par étape">
           {FILTRES.map((f) => (
             <button key={f.key} className={`chip${production === f.key && !retard ? ' active' : ''}`}

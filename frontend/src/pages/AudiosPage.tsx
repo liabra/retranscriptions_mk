@@ -30,14 +30,14 @@ export function AudiosPage() {
           <h1>Audios reçus</h1>
           <p>Les audios restent dans le OneDrive de l'association. La plateforme sert d'intermédiaire sécurisé.</p>
         </div>
-        <div className="row">
+        <div className="row" data-tour="audios-ajout">
           <button className="btn btn-secondary" onClick={() => setAjout('lien')}><Link2 size={17} />Ajouter un lien OneDrive</button>
           <button className="btn btn-primary" onClick={() => setAjout('fichier')}><Upload size={17} />Déposer un fichier</button>
         </div>
       </div>
 
       {s && (
-        <div className="card card-pad row" style={{ justifyContent: 'space-between' }}>
+        <div className="card card-pad row" style={{ justifyContent: 'space-between' }} data-tour="audios-detection">
           <div className="row">
             <span className={`kpi-icon tone-${s.detection_automatique_active ? 'green' : 'gray'}`}><RefreshCw size={17} /></span>
             <div>

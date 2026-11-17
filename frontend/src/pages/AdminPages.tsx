@@ -1,5 +1,8 @@
 import { useState } from 'react'
-import { History, KeyRound, Plus, ShieldCheck, UserCog } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { History, KeyRound, Lightbulb, PlayCircle, Plus, ShieldCheck, UserCog } from 'lucide-react'
+import { useTour } from '@/components/tour/context'
+import { TOURS, tourPourRole } from '@/components/tour/tours'
 import { api, type Me } from '@/lib/api'
 import { useAuth } from '@/lib/session'
 import { fDateTime, ROLES } from '@/lib/format'
@@ -20,7 +23,7 @@ export function UtilisateursPage() {
     <div className="page">
       <div className="page-head">
         <div><h1>Utilisateurs & droits</h1><p>Comptes d'accès et répartition des responsabilités entre l'administratrice et la coordinatrice.</p></div>
-        <button className="btn btn-primary" onClick={() => setEdit('new')}><Plus size={18} />Nouvel utilisateur</button>
+        <button className="btn btn-primary" data-tour="utilisateurs-nouveau" onClick={() => setEdit('new')}><Plus size={18} />Nouvel utilisateur</button>
       </div>
       <ErrorBox error={error} />
       <div className="card">
@@ -188,7 +191,9 @@ export function ComptePage() {
 
 /* ── Aide ────────────────────────────────────────────────────────────────── */
 export function AidePage() {
-  const { isPrestataire } = useAuth()
+  const { isPrestataire, isClient } = useAuth()
+  const { start } = useTour()
+  const tourId = tourPourRole(isPrestataire, isClient)
   const sections = isPrestataire ? [
     ['Trouver mes missions', 'Toutes vos missions en cours sont dans « Mes missions », triées par échéance. Une mission en retard est signalée en rouge.'],
     ['Télécharger l’audio', 'Cliquez sur « Télécharger l’audio ». Le fichier vous est transmis par la plateforme : vous n’avez besoin d’aucun accès OneDrive.'],
@@ -206,6 +211,22 @@ export function AidePage() {
   return (
     <div className="page">
       <div className="page-head"><div><h1>Aide</h1><p>L'essentiel pour bien utiliser la plateforme.</p></div></div>
+      {tourId && (
+        <div className="grid-2" data-tour="guide-parcours">
+          <div className="card card-pad stack">
+            <h3 className="section-title">Visite guidée</h3>
+            <p className="muted">Des bulles de conseil vous montrent, page par page, où se trouve chaque fonction.</p>
+            <button className="btn btn-primary" style={{ alignSelf: 'flex-start' }} onClick={() => start(tourId)}><Lightbulb size={16} />Lancer la visite · {TOURS[tourId].duree}</button>
+          </div>
+          {!isPrestataire && (
+            <div className="card card-pad stack">
+              <h3 className="section-title">Parcours d'un PV, de l'audio à la facture</h3>
+              <p className="muted">Un exemple fictif, étape par étape et interactif. Rien n'est enregistré.</p>
+              <Link className="btn btn-secondary" style={{ alignSelf: 'flex-start' }} to="/aide/parcours"><PlayCircle size={16} />Démarrer le parcours · 5 min</Link>
+            </div>
+          )}
+        </div>
+      )}
       <div className="grid-2">
         {sections.map(([t, txt]) => (
           <div key={t} className="card card-pad stack" style={{ gap: 8 }}>

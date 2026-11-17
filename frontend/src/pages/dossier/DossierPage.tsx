@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   Archive, ArrowLeft, AudioLines, CalendarClock, CheckCircle2, Download, Flame, Lock, MessageSquareWarning,
-  PencilLine, PlayCircle, Unlock, UserMinus, type LucideIcon,
+  Lightbulb, PencilLine, PlayCircle, Unlock, UserMinus, type LucideIcon,
 } from 'lucide-react'
 import { api, type DossierDetail } from '@/lib/api'
 import { downloadFile } from '@/services/api'
@@ -10,6 +10,7 @@ import { useAuth } from '@/lib/session'
 import { ETAPES, etapeIndex, fDate, fDateTime, fDuree, fSize, relative } from '@/lib/format'
 import { Alert, ErrorBox, Field, Modal, PageLoader, Pill, StatutPill, Tabs } from '@/components/ui'
 import { toast, useAction, useLoad } from '@/lib/hooks'
+import { useTour } from '@/components/tour/context'
 import { CriteresFields } from '@/pages/DossiersPage'
 import { Versions } from './Versions'
 import { Attribution } from './Attribution'
@@ -22,6 +23,7 @@ export function DossierPage() {
   const { can } = useAuth()
   const { data: d, error, loading, reload } = useLoad(() => api.dossier(id), [id])
   const [onglet, setOnglet] = useState<Onglet>('apercu')
+  const { start } = useTour()
 
   if (loading && !d) return <PageLoader />
   if (!d) return <ErrorBox error={error} />
@@ -47,9 +49,10 @@ export function DossierPage() {
             </div>
             <p>{d.titre ?? 'Sans titre'} · {d.client_nom} · {d.type_instance}{d.date_seance ? ` · séance du ${fDate(d.date_seance)}` : ''}</p>
           </div>
-          <div className="row">
+          <div className="row" data-tour="dossier-statuts">
             <StatutPill type="production" value={d.statut_production} />
             <StatutPill type="facturation" value={d.statut_facturation} />
+            <button className="btn btn-ghost btn-sm" onClick={() => start('dossier')}><Lightbulb size={15} />Guide de cette page</button>
           </div>
         </div>
       </div>
@@ -58,7 +61,7 @@ export function DossierPage() {
         <Alert tone="error"><strong>Dossier bloqué</strong> — {d.motif_blocage}</Alert>
       )}
 
-      <div className="card card-pad">
+      <div className="card card-pad" data-tour="dossier-frise">
         <div className="steps" aria-label="Avancement">
           {ETAPES.map((e, i) => {
             const idx = etapeIndex(d.statut_production)
@@ -75,7 +78,7 @@ export function DossierPage() {
 
       <ProchaineAction d={d} onChange={reload} goTo={setOnglet} />
 
-      <Tabs value={onglet} onChange={setOnglet} items={tabs} />
+      <div data-tour="dossier-onglets"><Tabs value={onglet} onChange={setOnglet} items={tabs} /></div>
       {onglet === 'apercu' && <Apercu d={d} onChange={reload} />}
       {onglet === 'versions' && <Versions dossier={d} onChange={reload} />}
       {onglet === 'attribution' && <Attribution dossier={d} onChange={reload} />}
@@ -89,7 +92,7 @@ function ActionCard({ icon: Icon, tone, title, text, children }: {
   icon: LucideIcon; tone: string; title: string; text: string; children?: React.ReactNode
 }) {
   return (
-    <div className="card card-pad" style={{ borderLeft: `4px solid var(--${tone === 'primary' ? 'primary' : tone})` }}>
+    <div className="card card-pad" data-tour="dossier-action" style={{ borderLeft: `4px solid var(--${tone === 'primary' ? 'primary' : tone})` }}>
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
         <div className="row" style={{ alignItems: 'flex-start', flex: 1, minWidth: 260 }}>
           <span className={`kpi-icon tone-${tone}`}><Icon size={18} /></span>
