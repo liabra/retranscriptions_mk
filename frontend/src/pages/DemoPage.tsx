@@ -49,7 +49,7 @@ const ETAPES: Etape[] = [
           <div className="card list-item demo-flash">
             <span className="kpi-icon tone-primary"><AudioLines size={18} /></span>
             <div className="list-main"><div className="list-title">Plénière_novembre.mp3</div>
-              <div className="small muted">Lien OneDrive · CSE Ateliers du Rhône · 1 h 15</div></div>
+              <div className="small muted">Lien OneDrive · CSE EDF Guyane · 1 h 15</div></div>
             <Pill tone="green" dot>Vérifié</Pill>
             <Action onClick={next} icon={<CheckCircle2 size={16} />}>Créer la mission</Action>
           </div>
@@ -64,7 +64,7 @@ const ETAPES: Etape[] = [
     ecran: (next) => (
       <Ecran url="/dossiers/nouveau">
         <div className="form-grid">
-          <div className="field"><span className="label">Client</span><div className="input">CSE Ateliers du Rhône</div></div>
+          <div className="field"><span className="label">Client</span><div className="input">CSE EDF Guyane</div></div>
           <div className="field"><span className="label">Type d'instance</span><div className="input">CE</div></div>
           <div className="field"><span className="label">Titre</span><div className="input">Plénière de novembre</div></div>
           <div className="field"><span className="label">Échéance client</span>
@@ -190,7 +190,7 @@ const ETAPES: Etape[] = [
     tips: ["Les trois suivis sont indépendants : production, facturation et paiement du retranscripteur.", "Un paiement effectué n'est plus modifiable."],
     ecran: (next, etat) => (
       <Ecran url="/finance">
-        <div className="card list-item"><div className="list-main"><div className="list-title">FAC-2026-0001 · CSE Ateliers du Rhône</div>
+        <div className="card list-item"><div className="list-main"><div className="list-title">FAC-2026-0001 · CSE EDF Guyane</div>
           <div className="small muted">100,00 € TTC · échéance dans 30 jours</div></div><Pill tone="blue" dot>Facture émise</Pill>
           <Action onClick={next} icon={<Wallet size={16} />}>Règlement reçu</Action></div>
         <div className="card list-item"><div className="list-main"><div className="list-title">Léa Durand</div><div className="small muted">Paiement du retranscripteur</div></div>
@@ -218,7 +218,7 @@ export function DemoPage() {
       <div className="page-head">
         <div><Link to="/aide" className="small row" style={{ gap: 6 }}><ArrowLeft size={15} />Aide</Link>
           <h1>Parcours d'un PV, de l'audio à la facture</h1>
-          <p>Un exemple complet en 9 étapes : « Plénière de novembre » du CSE Ateliers du Rhône.</p></div>
+          <p>Un exemple complet en 9 étapes : « Plénière de novembre » du CSE EDF Guyane.</p></div>
       </div>
       <div className="demo-banner"><Lightbulb size={18} /><span><strong>Mode démonstration.</strong> Les noms et montants sont fictifs et rien n'est enregistré. Cliquez sur les boutons qui pulsent pour avancer.</span></div>
 

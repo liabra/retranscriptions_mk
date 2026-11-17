@@ -72,7 +72,7 @@ def main() -> None:
 
     clients = [post("/clients", json={"nom": n, "type": t, "entreprise_mere": e, "contact_principal": p,
                                       "conditions_paiement": "30 jours"})
-               for n, t, e, p in (("CSE Ateliers du Rhône", "CE", "Ateliers du Rhône SA", "Marc Bernard"),
+               for n, t, e, p in (("CSE EDF Guyane", "CE", "EDF Guyane", "Marc Bernard"),
                                   ("CMAS Énergie Sud", "CMAS", "Énergie Sud", "Claire Petit"),
                                   ("CSSCT Logistique Nord", "CSSCT", "Logistique Nord", "Paul Roux"))]
     prestas = []
