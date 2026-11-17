@@ -220,7 +220,7 @@ export function DemoPage() {
           <h1>Parcours d'un PV, de l'audio à la facture</h1>
           <p>Un exemple complet en 9 étapes : « Plénière de novembre » du CSE EDF Guyane.</p></div>
       </div>
-      <div className="demo-banner"><Lightbulb size={18} /><span><strong>Mode démonstration.</strong> Les noms et montants sont fictifs et rien n'est enregistré. Cliquez sur les boutons qui pulsent pour avancer.</span></div>
+      <div className="demo-banner"><Lightbulb size={18} /><span><strong>Mode démonstration.</strong> Les noms et montants sont fictifs et rien n'est enregistré. Cliquez sur le bouton vert qui pulse (entouré d'un halo) pour avancer.</span></div>
 
       {fini ? (
         <div className="card card-pad stack" style={{ alignItems: 'center', textAlign: 'center', padding: 40 }}>
