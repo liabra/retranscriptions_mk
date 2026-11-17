@@ -22,7 +22,7 @@ export default defineConfig([
   },
   {
     // Module de configuration du routeur (pages chargées à la demande) : pas de rechargement à chaud requis
-    files: ['src/routes/**/*.tsx', 'src/test/**/*.tsx'],
+    files: ['src/routes/**/*.tsx', 'src/test/**/*.tsx', 'src/pages/demo/**/*.tsx'],
     rules: { 'react-refresh/only-export-components': 'off' },
   },
 ])

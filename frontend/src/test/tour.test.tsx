@@ -3,7 +3,11 @@ import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { TourProvider } from '@/components/tour/TourProvider'
 import { etapesVisibles, guideVu, marquerGuideVu, useTour } from '@/components/tour/context'
 import { TOURS, tourPourRole } from '@/components/tour/tours'
-import { DemoPage } from '@/pages/DemoPage'
+import { DemoPage } from '@/pages/demo/DemoPage'
+import { PARCOURS, parcoursPour } from '@/pages/demo/registre'
+import { Route, Routes, MemoryRouter } from 'react-router-dom'
+import { render } from '@testing-library/react'
+import { AuthContext } from '@/lib/session'
 import { makeUser, renderWithAuth } from './helpers'
 
 function Lanceur({ id }: { id: string }) {
@@ -62,5 +66,37 @@ describe('parcours de démonstration', () => {
     fireEvent.click(screen.getByText("Établir la facture"))
     fireEvent.click(screen.getByText('Règlement reçu'))
     expect(screen.getByText('Parcours terminé')).toBeInTheDocument()
+  })
+})
+
+
+describe('parcours interactifs', () => {
+  it('sépare les parcours des responsables et des retranscripteurs', () => {
+    expect(parcoursPour(false).map((p) => p.id)).toEqual(['pv', 'tarifs', 'delais', 'cas', 'equipe'])
+    expect(parcoursPour(true).map((p) => p.id)).toEqual(['mission'])
+  })
+
+  it.each(PARCOURS.filter((p) => p.id !== 'pv').map((p) => [p.id, p] as const))('« %s » se déroule jusqu’au bout en cliquant sur le bouton qui pulse', (_id, p) => {
+    const user = makeUser({ role: p.audience === 'prestataire' ? 'retranscripteur' : 'administratrice', permissions: [] })
+    const value = { user, ready: true, login: async () => user, logout: () => undefined, setSession: () => undefined, refresh: async () => undefined,
+      can: () => false, isPrestataire: p.audience === 'prestataire', isClient: false }
+    const { container } = render(
+      <AuthContext.Provider value={value}>
+        <MemoryRouter initialEntries={[`/aide/parcours/${p.id}`]}>
+          <Routes><Route path="/aide/parcours/:id" element={<DemoPage />} /><Route path="/aide" element={<div>page aide</div>} /></Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>)
+    for (let i = 0; i < 40 && !screen.queryByText('Parcours terminé'); i++) {
+      const bouton = container.querySelector<HTMLButtonElement>('button.demo-pulse')
+      expect(bouton, `étape ${i + 1} sans bouton d'action`).not.toBeNull()
+      fireEvent.click(bouton!)
+    }
+    expect(screen.getByText('Parcours terminé')).toBeInTheDocument()
+  })
+
+  it('renvoie vers l’aide un parcours réservé à l’autre profil', () => {
+    const user = makeUser({ role: 'retranscripteur', prestataire_id: 'p1' })
+    renderWithAuth(<DemoPage />, user, '/aide/parcours')
+    expect(screen.queryByText('Mode démonstration.')).not.toBeInTheDocument()
   })
 })

@@ -10,7 +10,7 @@ import { DossiersPage } from '@/pages/DossiersPage'
 import { ClientsPage, RetranscripteursPage } from '@/pages/ReferentielsPages'
 import { AidePage, ComptePage, JournalPage, UtilisateursPage } from '@/pages/AdminPages'
 import { EspaceClientPage, MesMissionsPage } from '@/pages/EspacesPages'
-import { DemoPage } from '@/pages/DemoPage'
+import { DemoPage } from '@/pages/demo/DemoPage'
 
 const DossierPage = lazy(() => import('@/pages/dossier/DossierPage').then((m) => ({ default: m.DossierPage })))
 const AudiosPage = lazy(() => import('@/pages/AudiosPage').then((m) => ({ default: m.AudiosPage })))
@@ -46,7 +46,8 @@ export const router = createBrowserRouter([
       { path: 'mon-espace', element: g('client', <EspaceClientPage />) },
       { path: 'compte', element: g('tous', <ComptePage />) },
       { path: 'aide', element: g('tous', <AidePage />) },
-      { path: 'aide/parcours', element: g('interne', <DemoPage />) },
+      { path: 'aide/parcours', element: g('tous', <DemoPage />) },
+      { path: 'aide/parcours/:id', element: g('tous', <DemoPage />) },
       { path: '*', element: <Accueil /> },
     ],
   },

@@ -1,38 +1,8 @@
-import { useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
-import {
-  ArrowLeft, ArrowRight, AudioLines, BadgeCheck, CheckCircle2, Download, FileText, Lightbulb, MessageSquareWarning,
-  Receipt, RotateCcw, Send, Upload, UserCheck, Wallet,
-} from 'lucide-react'
+import { Download, FileText, MessageSquareWarning, Receipt, RotateCcw, Upload, UserCheck, Wallet, AudioLines, BadgeCheck, CheckCircle2 } from 'lucide-react'
 import { Pill } from '@/components/ui'
+import { Action, Ecran, type Etape, type Parcours } from './moteur'
 
 /* Parcours simulé : toutes les données sont inventées et rien n'est enregistré. */
-
-type Acteur = 'Responsable' | 'Retranscripteur·rice' | 'Plateforme' | 'Comptabilité'
-const ACTEUR_TONE: Record<Acteur, string> = {
-  Responsable: 'primary', 'Retranscripteur·rice': 'blue', Plateforme: 'violet', Comptabilité: 'amber',
-}
-
-function Ecran({ url, children }: { url: string; children: ReactNode }) {
-  return (
-    <div className="demo-screen">
-      <div className="demo-screen-bar"><i /><i /><i /><span style={{ marginLeft: 8 }}>{url}</span></div>
-      <div className="demo-screen-body">{children}</div>
-    </div>
-  )
-}
-
-function Action({ children, onClick, icon }: { children: ReactNode; onClick: () => void; icon?: ReactNode }) {
-  return <button className="btn btn-primary demo-pulse" onClick={onClick}>{icon}{children}</button>
-}
-
-const Tip = ({ children }: { children: ReactNode }) => <div className="demo-tip"><Lightbulb size={16} /><span>{children}</span></div>
-
-interface Etape {
-  cle: string; titre: string; acteur: Acteur; resume: string; tips: string[]
-  ecran: (next: () => void, etat: Etat, maj: (e: Partial<Etat>) => void) => ReactNode
-}
-interface Etat { corrige: boolean; lienOk: boolean }
 
 const ETAPES: Etape[] = [
   {
@@ -201,59 +171,9 @@ const ETAPES: Etape[] = [
   },
 ]
 
-export function DemoPage() {
-  const [i, setI] = useState(0)
-  const [max, setMax] = useState(0)
-  const [fini, setFini] = useState(false)
-  const [etat, setEtat] = useState<Etat>({ corrige: false, lienOk: false })
-  const maj = (e: Partial<Etat>) => setEtat((s) => ({ ...s, ...e }))
-
-  const aller = (n: number) => { setI(n); setMax((m) => Math.max(m, n)); window.scrollTo({ top: 0, behavior: 'smooth' }) }
-  const suivant = () => (i >= ETAPES.length - 1 ? setFini(true) : aller(i + 1))
-  const recommencer = () => { setFini(false); setI(0); setMax(0); setEtat({ corrige: false, lienOk: false }) }
-  const e = ETAPES[i]
-
-  return (
-    <div className="page">
-      <div className="page-head">
-        <div><Link to="/aide" className="small row" style={{ gap: 6 }}><ArrowLeft size={15} />Aide</Link>
-          <h1>Parcours d'un PV, de l'audio à la facture</h1>
-          <p>Un exemple complet en 9 étapes : « Plénière de novembre » du CSE EDF Guyane.</p></div>
-      </div>
-      <div className="demo-banner"><Lightbulb size={18} /><span><strong>Mode démonstration.</strong> Les noms et montants sont fictifs et rien n'est enregistré. Cliquez sur le bouton vert qui pulse (entouré d'un halo) pour avancer.</span></div>
-
-      {fini ? (
-        <div className="card card-pad stack" style={{ alignItems: 'center', textAlign: 'center', padding: 40 }}>
-          <span className="kpi-icon tone-green" style={{ width: 56, height: 56 }}><CheckCircle2 size={28} /></span>
-          <h2 style={{ fontSize: 24 }}>Parcours terminé</h2>
-          <p className="muted" style={{ maxWidth: 520 }}>Vous avez suivi un PV de la réception de l'audio jusqu'au règlement. Vous pouvez maintenant créer votre premier vrai dossier.</p>
-          <div className="row"><button className="btn btn-secondary" onClick={recommencer}><RotateCcw size={16} />Recommencer</button>
-            <Link className="btn btn-primary" to="/audios"><Send size={16} />Aller aux audios reçus</Link></div>
-        </div>
-      ) : (
-        <div className="demo-layout">
-          <nav className="demo-nav" aria-label="Étapes du parcours">
-            {ETAPES.map((s, n) => (
-              <button key={s.cle} disabled={n > max} className={`${n === i ? 'active' : ''}${n < i || n < max ? ' fait' : ''}`} onClick={() => aller(n)}>
-                <span className="demo-num">{n < max && n !== i ? <CheckCircle2 size={14} /> : n + 1}</span><span>{s.titre}</span>
-              </button>
-            ))}
-          </nav>
-          <section className="stack-lg" key={e.cle}>
-            <div className="stack" style={{ gap: 8 }}>
-              <span className={`demo-actor tone-${ACTEUR_TONE[e.acteur]}`}>{e.acteur}</span>
-              <h2 style={{ fontSize: 22 }}>Étape {i + 1} · {e.titre}</h2>
-              <p className="muted">{e.resume}</p>
-            </div>
-            {e.ecran(suivant, etat, maj)}
-            <div className="demo-tips">{e.tips.map((t) => <Tip key={t}>{t}</Tip>)}</div>
-            <div className="row" style={{ justifyContent: 'space-between' }}>
-              <button className="btn btn-ghost" disabled={i === 0} onClick={() => aller(i - 1)}><ArrowLeft size={16} />Étape précédente</button>
-              {i < max && <button className="btn btn-secondary" onClick={suivant}>Étape suivante<ArrowRight size={16} /></button>}
-            </div>
-          </section>
-        </div>
-      )}
-    </div>
-  )
+export const PARCOURS_PV: Parcours = {
+  id: 'pv', titre: "Parcours d'un PV, de l'audio à la facture", duree: '5 min', audience: 'interne', etapes: ETAPES,
+  resume: "Un exemple fictif complet : de la réception de l'audio au règlement de la facture.",
+  intro: "Un exemple complet en 9 étapes : « Plénière de novembre » du CSE EDF Guyane.",
+  fin: { texte: "Vous avez suivi un PV de la réception de l'audio jusqu'au règlement.", lien: { to: '/audios', label: "Aller aux audios reçus" } },
 }

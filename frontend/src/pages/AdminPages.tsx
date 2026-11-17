@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { History, KeyRound, Lightbulb, PlayCircle, Plus, ShieldCheck, UserCog } from 'lucide-react'
 import { useTour } from '@/components/tour/context'
 import { TOURS, tourPourRole } from '@/components/tour/tours'
+import { parcoursPour } from '@/pages/demo/registre'
 import { api, type Me } from '@/lib/api'
 import { useAuth } from '@/lib/session'
 import { fDateTime, ROLES } from '@/lib/format'
@@ -222,13 +223,13 @@ export function AidePage() {
               <p className="muted">Des bulles de conseil vous montrent, page par page, où se trouve chaque fonction et à quoi elle sert.</p>
               <button className="btn btn-primary" style={{ alignSelf: 'flex-start' }} onClick={() => start(tourId)}><Lightbulb size={16} />Lancer la visite · {TOURS[tourId].duree}</button>
             </div>
-            {!isPrestataire && (
-              <div className="card card-pad stack">
-                <h3 className="section-title">Parcours d'un PV, de l'audio à la facture</h3>
-                <p className="muted">Un exemple fictif, étape par étape : de la réception de l'audio au règlement de la facture. Rien n'est enregistré.</p>
-                <Link className="btn btn-secondary" style={{ alignSelf: 'flex-start' }} to="/aide/parcours"><PlayCircle size={16} />Démarrer le parcours · 5 min</Link>
+            {parcoursPour(isPrestataire).map((p) => (
+              <div key={p.id} className="card card-pad stack">
+                <h3 className="section-title">{p.titre}</h3>
+                <p className="muted">{p.resume} Rien n'est enregistré.</p>
+                <Link className="btn btn-secondary" style={{ alignSelf: 'flex-start' }} to={`/aide/parcours/${p.id}`}><PlayCircle size={16} />Démarrer · {p.duree}</Link>
               </div>
-            )}
+            ))}
           </div>
           {!isPrestataire && <p className="hint">Dans la fiche d'un dossier, le bouton « Guide de cette page » explique chaque zone de l'écran.</p>}
         </section>
