@@ -190,51 +190,61 @@ export function ComptePage() {
 }
 
 /* ── Aide ────────────────────────────────────────────────────────────────── */
+interface Fiche { titre: string; texte: string; lien?: { to: string; label: string; perm?: string } }
+
 export function AidePage() {
-  const { isPrestataire, isClient } = useAuth()
+  const { isPrestataire, isClient, can } = useAuth()
   const { start } = useTour()
   const tourId = tourPourRole(isPrestataire, isClient)
-  const sections = isPrestataire ? [
-    ['Trouver mes missions', 'Toutes vos missions en cours sont dans « Mes missions », triées par échéance. Une mission en retard est signalée en rouge.'],
-    ['Télécharger l’audio', 'Cliquez sur « Télécharger l’audio ». Le fichier vous est transmis par la plateforme : vous n’avez besoin d’aucun accès OneDrive.'],
-    ['Déposer mon PV', 'Le PV doit être au format Word (.docx), en Comic Sans MS taille 12. Après le dépôt, un contrôle automatique vous indique si la mise en forme est conforme. Vous pouvez redéposer une version tant que la relecture n’a pas commencé.'],
-    ['Corrections', 'Si une correction est demandée, le message apparaît sur la carte de la mission. Déposez simplement la nouvelle version : les précédentes sont conservées.'],
-    ['Confidentialité', 'Les audios et PV concernent des instances représentatives du personnel : ne les partagez jamais et supprimez vos copies locales après validation.'],
+  const fiches: Fiche[] = isPrestataire ? [
+    { titre: 'Trouver mes missions', texte: 'Toutes vos missions en cours sont dans « Mes missions », triées par échéance. Une mission en retard est signalée en rouge.', lien: { to: '/mes-missions', label: 'Ouvrir mes missions' } },
+    { titre: 'Télécharger l’audio', texte: 'Cliquez sur « Télécharger l’audio » sur la carte de la mission. Le fichier vous est transmis par la plateforme : vous n’avez besoin d’aucun accès OneDrive.' },
+    { titre: 'Déposer mon PV', texte: 'Le PV doit être au format Word (.docx), en Comic Sans MS taille 12. Après le dépôt, un contrôle automatique vous indique si la mise en forme est conforme. Vous pouvez redéposer une version tant que la relecture n’a pas commencé.' },
+    { titre: 'Corrections', texte: 'Si une correction est demandée, le message apparaît sur la carte de la mission. Déposez simplement la nouvelle version : les précédentes sont conservées.' },
+    { titre: 'Confidentialité', texte: 'Les audios et PV concernent des instances représentatives du personnel : ne les partagez jamais et supprimez vos copies locales après validation.' },
   ] : [
-    ['Le parcours d’un dossier', 'Audio reçu → qualification → attribution → retranscription → PV reçu → relecture (avec corrections éventuelles) → contrôle → validation. La facturation et le paiement du retranscripteur sont suivis séparément.'],
-    ['Ajouter un audio', 'Dans « Audios reçus » : collez un lien de partage OneDrive ou déposez le fichier. Le lien est chiffré et n’est jamais montré aux retranscripteurs.'],
-    ['Attribuer', 'La plateforme propose un classement des retranscripteurs (qualité, délais, charge, spécialités). Ce n’est qu’une aide : vous choisissez toujours. Sans historique suffisant, la mention « Historique insuffisant » s’affiche.'],
-    ['Contrôle des PV', 'Chaque dépôt est contrôlé (format Word réel, police Comic Sans MS, taille 12). Un document non conforme est conservé et signalé ; sa validation demande un motif.'],
-    ['Facturation', 'Une fois le PV validé : calculer, valider le montant, établir la facture puis enregistrer les règlements. Une facture n’est jamais supprimée : elle s’annule en conservant son numéro.'],
-    ['Droits', 'L’administratrice ajuste les droits de la coordinatrice dans « Utilisateurs & droits ».'],
+    { titre: 'Ajouter un audio', texte: 'Collez un lien de partage OneDrive ou déposez le fichier. Le lien est chiffré et n’est jamais montré aux retranscripteurs. Créez ensuite la mission en un clic.', lien: { to: '/audios', label: 'Ouvrir « Audios reçus »', perm: 'audios.gerer' } },
+    { titre: 'Attribuer une mission', texte: 'La plateforme propose un classement des retranscripteurs (qualité, délais, charge, spécialités). Ce n’est qu’une aide : vous choisissez toujours. Sans historique suffisant, la mention « Historique insuffisant » s’affiche.', lien: { to: '/dossiers?production=a_attribuer', label: 'Voir les missions à attribuer', perm: 'attribution.gerer' } },
+    { titre: 'Contrôle des PV', texte: 'Chaque dépôt est contrôlé (format Word réel, police Comic Sans MS, taille 12). Un document non conforme est conservé et signalé ; sa validation demande un motif.', lien: { to: '/dossiers?production=livre,a_relire,a_controler', label: 'Voir les PV à relire', perm: 'relecture' } },
+    { titre: 'Facturation', texte: 'Une fois le PV validé : calculer, valider le montant, établir la facture puis enregistrer les règlements. Une facture n’est jamais supprimée : elle s’annule en conservant son numéro.', lien: { to: '/finance', label: 'Ouvrir la facturation', perm: 'finance.voir' } },
+    { titre: 'Tarifs, majorations et délais', texte: 'Tout se règle dans « Tarifs & paramètres » : barèmes (avec un nouveau barème chaque année), majorations, délais de réalisation. Chaque changement crée une version datée et ne modifie jamais un dossier déjà calculé.', lien: { to: '/tarifs', label: 'Ouvrir les tarifs', perm: 'tarifs.gerer' } },
+    { titre: 'Droits de l’équipe', texte: 'L’administratrice ajuste les droits de la coordinatrice et remplace les adresses de connexion dans « Utilisateurs & droits ».', lien: { to: '/utilisateurs', label: 'Ouvrir les utilisateurs', perm: 'utilisateurs.gerer' } },
   ]
   return (
     <div className="page">
-      <div className="page-head"><div><h1>Aide</h1><p>L'essentiel pour bien utiliser la plateforme.</p></div></div>
+      <div className="page-head"><div><h1>Aide</h1><p>Apprenez en manipulant, ou retrouvez une explication précise.</p></div></div>
       {tourId && (
-        <div className="grid-2" data-tour="guide-parcours">
-          <div className="card card-pad stack">
-            <h3 className="section-title">Visite guidée</h3>
-            <p className="muted">Des bulles de conseil vous montrent, page par page, où se trouve chaque fonction.</p>
-            <button className="btn btn-primary" style={{ alignSelf: 'flex-start' }} onClick={() => start(tourId)}><Lightbulb size={16} />Lancer la visite · {TOURS[tourId].duree}</button>
-          </div>
-          {!isPrestataire && (
+        <section className="stack" data-tour="guide-parcours">
+          <h2 className="section-title">Apprendre en pratiquant <span className="small muted">· interactif</span></h2>
+          <div className="grid-2">
             <div className="card card-pad stack">
-              <h3 className="section-title">Parcours d'un PV, de l'audio à la facture</h3>
-              <p className="muted">Un exemple fictif, étape par étape et interactif. Rien n'est enregistré.</p>
-              <Link className="btn btn-secondary" style={{ alignSelf: 'flex-start' }} to="/aide/parcours"><PlayCircle size={16} />Démarrer le parcours · 5 min</Link>
+              <h3 className="section-title">Visite guidée de la plateforme</h3>
+              <p className="muted">Des bulles de conseil vous montrent, page par page, où se trouve chaque fonction et à quoi elle sert.</p>
+              <button className="btn btn-primary" style={{ alignSelf: 'flex-start' }} onClick={() => start(tourId)}><Lightbulb size={16} />Lancer la visite · {TOURS[tourId].duree}</button>
             </div>
-          )}
-        </div>
-      )}
-      <div className="grid-2">
-        {sections.map(([t, txt]) => (
-          <div key={t} className="card card-pad stack" style={{ gap: 8 }}>
-            <h3 className="section-title">{t}</h3>
-            <p className="muted">{txt}</p>
+            {!isPrestataire && (
+              <div className="card card-pad stack">
+                <h3 className="section-title">Parcours d'un PV, de l'audio à la facture</h3>
+                <p className="muted">Un exemple fictif, étape par étape : de la réception de l'audio au règlement de la facture. Rien n'est enregistré.</p>
+                <Link className="btn btn-secondary" style={{ alignSelf: 'flex-start' }} to="/aide/parcours"><PlayCircle size={16} />Démarrer le parcours · 5 min</Link>
+              </div>
+            )}
           </div>
-        ))}
-      </div>
+          {!isPrestataire && <p className="hint">Dans la fiche d'un dossier, le bouton « Guide de cette page » explique chaque zone de l'écran.</p>}
+        </section>
+      )}
+      <section className="stack">
+        <h2 className="section-title">Fiches pratiques <span className="small muted">· à lire, pour retrouver une règle ou une étape</span></h2>
+        <div className="grid-2">
+          {fiches.map((f) => (
+            <div key={f.titre} className="card card-pad stack" style={{ gap: 8 }}>
+              <h3 className="section-title">{f.titre}</h3>
+              <p className="muted">{f.texte}</p>
+              {f.lien && (!f.lien.perm || can(f.lien.perm)) && <Link className="small" to={f.lien.to}>{f.lien.label} →</Link>}
+            </div>
+          ))}
+        </div>
+      </section>
     </div>
   )
 }
